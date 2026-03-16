@@ -7,7 +7,6 @@ import optimisation_tournee
 #CHARGEMENT DES DONNÉES
 
 
-@st.cache_data
 
 def charger_dates_valides():
     """
