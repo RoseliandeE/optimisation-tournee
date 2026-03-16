@@ -228,6 +228,7 @@ if check_mot_de_passe():
             
         st.write("Contenu de st.session_state.site :")
         st.write(st.session_state.site.head()) # Affiche les premières lignes
+        st.write(st.session_state.tech)
         st.write("Colonnes disponibles :")
         st.write(st.session_state.site.columns.tolist()) # Affiche la liste des colonnes
     
