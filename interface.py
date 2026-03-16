@@ -208,7 +208,8 @@ if check_mot_de_passe():
         
             except FileNotFoundError as e:
                 st.error(f"Fichier manquant : {e}. Veuillez vérifier que tous les CSV sont présents.")
-                return pd.DataFrame(),pd.DataFrame()
+                st.session_state.site =pd.DataFrame()
+                st.session_state.duration  = pd.DataFrame()
             
             
         
