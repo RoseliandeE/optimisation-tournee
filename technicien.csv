@@ -1,13 +1,13 @@
-prenom;nom;adresse ;id_technicien;tourne_defaut
-Gabriel;Martin;185 Av. Joseph Fontanet, 73490 La Ravoire;1;1
-Raphaël;Bernard;2 Av. de Verdun, 74100 Annemasse;2;2
-Louis;Thomas;197 Av. de la République, 38090 Villefontaine;3;3
-Léo;Petit;Rue Etienne Dolet, Lot. le Clos des Tanneurs, 26100 Romans-sur-Isère;4;4
-Noah;Robert;1 Rue des Trolles, 38190 Froges;5;0
-Gabriel;Bernard;185 Av. Joseph Fontanet, 73490 La Ravoire;6;1
-Raphaël;Thomas;2 Av. de Verdun, 74100 Annemasse;7;5
-Louis;Petit;197 Av. de la République, 38090 Villefontaine;8;6
-Léo;Robert;Rue Etienne Dolet, Lot. le Clos des Tanneurs, 26100 Romans-sur-Isère;9;7
-Noah;Martin;1 Rue des Trolles, 38190 Froges;10;7
-Gabriel;Robert;185 Av. Joseph Fontanet, 73490 La Ravoire;11;2
-Raphaël;Bernard;2 Av. de Verdun, 74100 Annemasse;12;0
+prenom;nom ;id_technicien;tourne_defaut
+Gabriel;Martin;1;1
+RaphaÃ«l;Bernard;2;2
+Louis;Thomas;3;3
+LÃ©o;Petit;4;4
+Noah;Robert;5;0
+Gabriel;Bernard;6;1
+RaphaÃ«l;Thomas;7;5
+Louis;Petit;8;6
+LÃ©o;Robert;9;7
+Noah;Martin;10;7
+Gabriel;Robert;11;2
+RaphaÃ«l;Bernard;12;0
