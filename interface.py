@@ -187,8 +187,6 @@ if check_mot_de_passe():
         
         if st.button("✅ Valider cette date"):
             st.session_state.site,st.session_state.duration  = charger_donnees(date)
-            st.write(st.session_state.site.head())
-            st.write(st.session_state.duration.head())
             st.session_state.etape = 2
             st.rerun()
         
@@ -196,6 +194,8 @@ if check_mot_de_passe():
 
     # PARAMÉTRAGE
     if st.session_state.etape == 2:
+        st.write(st.session_state.site.head())
+        st.write(st.session_state.duration.head())
         df_tournees = pd.read_csv("tournees.csv", sep=';', encoding='latin-1')
         df_techniciens = pd.read_csv("technicien.csv", sep=';', encoding='latin-1')
         df_techniciens['prenom nom']=df_techniciens['prenom'] + ' ' + df_techniciens['nom']
