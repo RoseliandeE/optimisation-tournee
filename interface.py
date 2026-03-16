@@ -46,14 +46,15 @@ def check_mot_de_passe() :
         else : 
             st.session_state["password_correct"] = False
         
-        if "password_correct" not in st.session_state : 
-            st.text_input("Veuillez entrer un mot de passe :", type="password", key="password")
-            return False
-        elif not st.session_state["password_crrect"] : 
-            st.text_input("mot de passe incorrect ")
-            return False
-        else :
-            return True 
+    if "password_correct" not in st.session_state : 
+        st.text_input("Veuillez entrer un mot de passe :", type="password", on_change=mot_de_passe_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"] : 
+        st.text_input("Veuillez entrer un mot de passe :", type="password", on_change=mot_de_passe_entered, key="password")
+        st.error("mot de passe incorrect ")
+        return False
+    else :
+        return True 
 
 def charger_donnees(date_selectionnee):
     try:
