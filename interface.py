@@ -225,6 +225,11 @@ if check_mot_de_passe():
             st.text(f"⚠️Tous les temps sont en minutes \nLe technicien travaille 7h30 dans sa journée = 450 minutes")
         with col2:
             st.text(f"Temps_PEC par défaut est le temps (en minute) prévu pour la prise en charge")
+            
+        st.write("Contenu de st.session_state.site :")
+        st.write(st.session_state.site.head()) # Affiche les premières lignes
+        st.write("Colonnes disponibles :")
+        st.write(st.session_state.site.columns.tolist()) # Affiche la liste des colonnes
     
         sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
         sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
