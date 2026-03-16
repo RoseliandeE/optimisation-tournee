@@ -187,6 +187,8 @@ if check_mot_de_passe():
         
         if st.button("✅ Valider cette date"):
             st.session_state.site,st.session_state.duration  = charger_donnees(date)
+            st.write(st.session_state.site.head())
+            st.write(st.session_state.duration.head())
             st.session_state.etape = 2
             st.rerun()
         
