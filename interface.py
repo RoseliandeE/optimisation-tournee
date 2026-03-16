@@ -62,7 +62,7 @@ def charger_donnees(date_selectionnee):
         tournees_file = "tournees.csv"
         horaires_file = "synthese_horaires_sites.csv"
 
-        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="latin-1")
+        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="utf-8")
         
         df_durees_temp = pd.read_csv(durations_file, sep=';', encoding='utf-8')
         df_durees_temp = df_durees_temp[df_durees_temp['id']>0]
