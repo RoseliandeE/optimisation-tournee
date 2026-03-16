@@ -1,4 +1,4 @@
 streamlit
 pandas
 numpy
-ortools.constraint_solver
+ortools
