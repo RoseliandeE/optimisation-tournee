@@ -194,8 +194,6 @@ if check_mot_de_passe():
 
     # PARAMÉTRAGE
     if st.session_state.etape == 2:
-        df_sites_original = pd.read_csv("sites.csv", sep=';', encoding="utf-8")
-        st.write(df_sites_original.head())
         df_tournees = pd.read_csv("tournees.csv", sep=';', encoding='latin-1')
         df_techniciens = pd.read_csv("technicien.csv", sep=';', encoding='latin-1')
         df_techniciens['prenom nom']=df_techniciens['prenom'] + ' ' + df_techniciens['nom']
