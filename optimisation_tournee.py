@@ -1,410 +1,664 @@
-import streamlit as st
 import pandas as pd
+from ortools.constraint_solver import routing_enums_pb2
+from ortools.constraint_solver import pywrapcp
 import numpy as np
 
-import optimisation_tournee
-
-#CHARGEMENT DES DONNÉES
+import transformer_horaire
 
 
-@st.cache_data
 
-def charger_dates_valides():
-    """
-    Lit le fichier d'horaires et retourne une liste des dates uniques et valides
-    pour lesquelles il existe des données.
-    """
-    try:
-        horaires_file = "synthese_horaires_sites.csv"
-        df_horaires = pd.read_csv(horaires_file, sep=';', encoding='utf-8')
+def optimiser_tournee(sites_df, durations_df,horaire_tech):
+    """Fonction qui optimise la tournée
+    Logique : 
+        - Si le technicien est présent que le matin ou l'aprem, on applique le solveur direct 
+        - Sinon 
+            -On applique le solveur sur les sites ouverts seulement le matin
+            -On ajoute le plus de site possible pour "combler" la matinée
+            -On fait une boucle sur tous les sites restants
+                -Ce site sera celui de la pause du midi (on va fractionner son temps de travail ou trajet) 
+                et on applique le solveur sur le reste des sites pour l'après midi
+                -On garde la meilleure solution """
+    
+    if len(sites_df) <= 1:
+        #s'il n'y a qu'un seul site, on ne fait pas de calcul de tournée
+        return None
+    
+    solution = None
+    
+    #on travaille sur des copies au cas ou 
+    sites = sites_df.copy()
+    durations = durations_df.copy()
+
+    #horaire du technicien sous forme de tuple de minutes ex : 8h-17h = (480,1020)
+    debut_tech, fin_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
+    print('---------------------------------------------------')
+    print('debut optimisation')
+    print('---------------------------------------------------')
+
+
+    if fin_tech < 780  : #si le tech fini avant 13h
+        return None #appliquer le solveur "simplement" car on a qu'une plage horaire
+
+    elif debut_tech > 780 : #Si le tech commence après 13h
+        return None #idem, on applique le solveur "simplement"
+    
+    else : 
+        # Cas d'une journée 'normale' avec pause déjeuner
+
+        # Filtrer les sites qui sont ouverts SEULEMENT le matin
+        _, id_site_ouvert_seulement_matin, id_site_ouvert_matin = ajuster_horaire_matin(horaire_tech, sites)
+        current_site = sites[sites['ID_Site'].isin(id_site_ouvert_seulement_matin)] #sites ouvert seulement le matin
+
+        # Réduire les données pour le solveur du matin (sites ouverts seulement le matin)
+        # On ajuste les plages horaires uniquement pour ces sites
+        plage_horaire_reduit, _,_= ajuster_horaire_matin(horaire_tech, current_site)
+        matrice_duration_reduite = reduire_taille(durations,current_site)
+
         
-        # Convertit la colonne en dates, les formats invalides deviennent NaT (Not a Time)
-        df_horaires['Date_calendrier'] = pd.to_datetime(df_horaires['Date_calendrier'], format='%d/%m/%Y', errors='coerce')
-        
-        # Supprime les lignes où la date n'a pas pu être interprétée
-        df_horaires.dropna(subset=['Date_calendrier'], inplace=True)
-        
-        # Récupère les dates uniques et les trie
-        dates_uniques = sorted(df_horaires['Date_calendrier'].unique())
-        
-        if dates_uniques:
-            return dates_uniques[0].strftime("%d %m %Y"), dates_uniques[-1].strftime("%d %m %Y") # Retourne (min_date, max_date)
-        return None, None
-    except FileNotFoundError:
-        st.error("Fichier `synthese_horaires_sites.csv` introuvable. Impossible de déterminer les dates valides.")
-        return None, None
 
-def check_mot_de_passe() : 
-    """Vérifie si l'utilisateur a rentré le bon mdp"""
+        #Solution exacte pour les sites ouverts seulement le matin 
+        if not current_site.empty:
+            solution = appliquer_solveur(current_site, matrice_duration_reduite, plage_horaire_reduit)
+        
+    
+        if (solution is None and not current_site.empty) : 
+            # Si pas de solution alors qu'il y a des sites ouverts seulement le matin
+            # = Emploi du temps matinal trop chargé / contraintes non respectées
+            return None
+        
 
-    def mot_de_passe_entered():
-        """Vérifie le mdp tapé par l'utilisateur """
-        if st.session_state["password"] == st.secrets["mot_de_passe"] :
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
 
+        if(sites[~sites['ID_Site'].isin(current_site['ID_Site'].to_list())].empty) : 
+            #si il n'y a plus de site dans la liste
+            return solution
+        
+        
         else : 
-            st.session_state["password_correct"] = False
         
-    if "password_correct" not in st.session_state : 
-        st.text_input("Veuillez entrer un mot de passe :", type="password", on_change=mot_de_passe_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"] : 
-        st.text_input("Veuillez entrer un mot de passe :", type="password", on_change=mot_de_passe_entered, key="password")
-        st.error("mot de passe incorrect ")
-        return False
-    else :
-        return True 
+            site_ouvert_matin = sites[sites['ID_Site'].isin(id_site_ouvert_matin)] #tous les sites ouverts le matin 
 
-def charger_donnees(date_selectionnee):
-    try:
-        sites_file = "sites.csv"
-        durations_file = "durations.csv"
-        distances_file = "distance.csv"
-        home_site_durations_file = "durations_sites_maison.csv"
-        tournees_file = "tournees.csv"
-        horaires_file = "synthese_horaires_sites.csv"
-
-        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="latin-1")
-        
-        df_durees_temp = pd.read_csv(durations_file, sep=';', encoding='utf-8')
-        df_durees_temp = df_durees_temp[df_durees_temp['id']>0]
-        df_durees_temp = df_durees_temp.drop('nom',axis=1)
-        df_durees_temp = df_durees_temp.drop('cluster',axis=1)
-
-        df_distances_temp = pd.read_csv(distances_file, sep=';', encoding='utf-8')
-        df_home_site_durations_temp = pd.read_csv(home_site_durations_file, sep=';', encoding='latin-1')
-        df_tournees = pd.read_csv(tournees_file, sep=';', encoding='latin-1')
-        df_horaires_temp = pd.read_csv(horaires_file, sep=';', encoding='utf-8')
-
-
-    except FileNotFoundError as e:
-        st.error(f"Fichier manquant : {e}. Veuillez vérifier que tous les CSV sont présents.")
-        return pd.DataFrame(),pd.DataFrame()
-    
-    
-
-    df_horaires = df_horaires_temp.copy()
-    df_horaires['Date_calendrier'] = pd.to_datetime(df_horaires['Date_calendrier'], format='%d/%m/%Y', errors='coerce')
-    horaires_du_jour = df_horaires[df_horaires['Date_calendrier'].dt.date == date_selectionnee].copy()
-
-    #Fusion des données
-    df_merged = pd.merge(df_sites_original, df_tournees, left_on='cluster', right_on='numTournée', how='left')
-    
-    horaires_du_jour = horaires_du_jour.drop(['NomSite','Typologie MTK'], axis=1)
-    df_merged = pd.merge(df_merged, horaires_du_jour, on='idSite', how='left')
-
-    #CRÉATION DU DATAFRAME FINAL 'df_sites'
-    df_sites = pd.DataFrame()
-    df_sites["ID_Site"] = df_merged["idSite"]
-    df_sites["Nom"] = df_merged["NomSite"]
-    df_sites["Groupement"] = df_merged["nom"]
-    temps_pec_heures = pd.to_numeric(df_merged["Nb_Heures"].str.replace(',', '.'), errors='coerce').fillna(0)
-    df_sites["Temps_PEC"] = (temps_pec_heures * 60).astype(int)
-    df_sites["Maint_Prev"] = 0 
-    df_sites["Maint_Corr"] = 0 
-
-    
-    # Définition des horaires par défaut en minutes
-    default_ouv_matin = 480  # 08:00
-    default_ferm_matin = 720  # 12:00
-    default_ouv_aprem = 810  # 13:30
-    default_ferm_aprem = 1020 # 17:00
-    default_horaires_str = "08:00-12:00 | 13:30-17:00 (Défaut)"
-
-    # Condition : identifier les lignes où aucune info d'horaire n'a été trouvée
-    sans_horaires_definis = pd.isna(df_merged['Date_calendrier'])
-
-
-    # Pour l'ouverture du matin
-    ouv_matin_reels = df_merged['Plage_horaire_1'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[0])
-    df_sites['Ouv_Matin'] = np.where(sans_horaires_definis, default_ouv_matin, ouv_matin_reels)
-
-    # Pour la fermeture du matin
-    ferm_matin_reels = df_merged['Plage_horaire_1'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[1])
-    df_sites['Ferm_Matin'] = np.where(sans_horaires_definis, default_ferm_matin, ferm_matin_reels)
-
-    # Pour l'ouverture de l'après-midi
-    ouv_aprem_reels = df_merged['Plage_horaire_2'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[0])
-    df_sites['Ouv_Aprem'] = np.where(sans_horaires_definis, default_ouv_aprem, ouv_aprem_reels)
-    
-    # Pour la fermeture de l'après-midi
-    ferm_aprem_reels = df_merged['Plage_horaire_2'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[1])
-    df_sites['Ferm_Aprem'] = np.where(sans_horaires_definis, default_ferm_aprem, ferm_aprem_reels)
-
-    # --- 6. CRÉATION DE LA COLONNE 'Horaires' LISIBLE (MODIFIÉ) ---
-    def formater_horaires_display(row):
-        h1 = row['Plage_horaire_1']
-        h2 = row['Plage_horaire_2']
-        if 'FERME' in str(h1).upper(): return "Fermé"
-        horaires_str = str(h1).strip() if pd.notna(h1) else ""
-        if pd.notna(h2) and str(h2).strip() != '': horaires_str += f" | {h2.strip()}"
-        return horaires_str
-
-    horaires_reels_str = df_merged.apply(formater_horaires_display, axis=1)
-    df_sites['Horaires'] = np.where(sans_horaires_definis, default_horaires_str, horaires_reels_str)
-
-    df_sites["Dans_Tournee_Defaut"] = False 
-
-    return df_sites,df_durees_temp
-
-
-
-
-#INTERFACE STREAMLIT
-if check_mot_de_passe():
-    st.success('Accès autorisé')
-    st.set_page_config(page_title="Gestion Tournées Techniciens", layout="wide")
-    min_date, max_date = charger_dates_valides()
-
-
-    # Initialisation du session_state
-    if 'horaire_tech' not in st.session_state : #Horaire du technicien en str
-        st.session_state.horaire_tech = "00:00-12:00"
-    if 'etape' not in st.session_state:
-        st.session_state.etape = 1
-    if 'sites_courants' not in st.session_state: #sites dans le cluster 
-        st.session_state.sites_courants = pd.DataFrame()
-    if 'resultat_tournee' not in st.session_state:
-        st.session_state.resultat_tournee = None
-    if 'groupement_choisi' not in st.session_state: #ou cluster
-        st.session_state.groupement_choisi = "Grenoble"
-    if 'site' not in st.session_state:
-        st.session_state.site = pd.DataFrame()
-    if 'duration' not in st.session_state:
-        st.session_state.duration = pd.DataFrame()
-    if 'tech' not in st.session_state:
-        st.session_state.tech = ""
-
-
-    #1ère page : choix de la date
-    if st.session_state.etape == 1:
-        st.header("Choix de la journée")
-        st.subheader(f"Choisir une date entre : {min_date} et {max_date}")
-        date = st.date_input("Date d'intervention")
-        
-        if st.button("✅ Valider cette date"):
-            st.session_state.site,st.session_state.duration  = charger_donnees(date)
-            st.session_state.etape = 2
-            st.rerun()
-        
-
-
-    # PARAMÉTRAGE
-    if st.session_state.etape == 2:
-        df_tournees = pd.read_csv("tournees.csv", sep=';', encoding='latin-1')
-        df_techniciens = pd.read_csv("technicien.csv", sep=';', encoding='latin-1')
-        df_techniciens['prenom nom']=df_techniciens['prenom'] + ' ' + df_techniciens['nom']
-
-        st.header("Choix de la Tournée")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.session_state.tech = st.selectbox("Technicien", df_techniciens['prenom nom'].tolist())
-            num_tournee =  df_techniciens[df_techniciens['prenom nom'] == st.session_state.tech]['tourne_defaut'].iloc[0]
+            if solution is not None : 
+                #Si il y a une solution pour faire une tournée avec les sites ouverts seulement le matin 
+                site_ouvert_matin_aprem = site_ouvert_matin[~site_ouvert_matin['ID_Site'].isin(solution['ID_Site'].to_list())] #site ouvert matin ET après midi 
+                temps_tournee = solution[solution['Ordre']==max(solution['Ordre'].to_list())]['Heure_Fin'].iloc(0)
             
-            st.text(f"Zone géographique du technicien : { df_tournees[df_tournees['numTournée']==num_tournee]['nom'].iloc[0]}")
-            groupement = st.selectbox("Groupement géographique",df_tournees['nom'].tolist())
-            st.session_state.groupement_choisi = groupement
-
-        with col2:
-            
-            liste_matin = ["07:00","07:30","08:00","08:30","09:00","09:30","10:00","11:00","12:00","13:00","14:00"]
-            liste_aprem = ["12:00","13:00","13:30","14:00","15:00","16:00","16:30","17:00","17:30","18:00"]
-            
-            matin = st.selectbox("Heure début de journée",liste_matin)
-            aprem = st.selectbox("Heure fin de journée",liste_aprem)
-            st.markdown("*La pause du midi dure 1h30 entre 12h et 14h*.")
-            st.session_state.horaire_tech = matin+"-"+aprem
-        
-        
-        st.subheader(f"Ajustement des interventions : {groupement}")
-        col1, col2,_,_ = st.columns(4)
-        with col1:
-            #st.text(f"💡Recommendation : \nSi les durées sont trop longues à cette étape, le système bloquera en jugeant la journée irrealisable (à cause des contraintes d'horaires ou de temps de trajet). Pour cela, saisissez un temps de service total minime que vous ajusterez plus tard")
-            st.text(f"⚠️Tous les temps sont en minutes \nLe technicien travaille 7h30 dans sa journée = 450 minutes")
-        with col2:
-            st.text(f"Temps_PEC par défaut est le temps (en minute) prévu pour la prise en charge")
-    
-        sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
-        sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
-    
-        colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
-        edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
-    
-        if st.button("🚀 Calculer l'itinéraire"):
-            sites_coches = edited_df[edited_df["À_Visiter"] == True].copy()
-            sites_coches["Temps_Total_Service"] = sites_coches["Temps_PEC"] + sites_coches["Maint_Prev"] + sites_coches["Maint_Corr"]
-        
-            noms_choisis = sites_coches["Nom"].tolist()
-            details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
-            sites_finaux = pd.merge(sites_coches, details_sites, on="Nom")
-        
-            st.session_state.sites_courants = sites_finaux
-            st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
-            
-            st.session_state.etape = 3
-            st.rerun()
-        if st.button("🔄 Changer la date"):
-                st.session_state.etape = 1
-                st.session_state.sites_courants = pd.DataFrame()
-                st.session_state.resultat_tournee = None
-                st.session_state.etape = 1 
-                st.rerun()
-
-    # --- ÉTAPE 2 : ATELIER D'AJUSTEMENT ---
-    elif st.session_state.etape == 3:
-        st.header("2. Ajustement de la Tournée")
-        st.session_state.sites_courants["Temps_Total_Service"] = st.session_state.sites_courants["Temps_PEC"] + st.session_state.sites_courants["Maint_Prev"] + st.session_state.sites_courants["Maint_Corr"]
-        tournee_courante = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
+            else : #il n'y a aucun site ouvert seulement le matin
+                site_ouvert_matin_aprem = site_ouvert_matin.copy()
+                temps_tournee=0
 
 
-    
-        col_tournee, col_suggestions = st.columns([2, 1])
-    
-        with col_tournee:
-            st.subheader("Planning calculé")
-            if (len(st.session_state.sites_courants) == 0) : 
-                st.error("Aucun site dans la tournée")
-                st.session_state.sites_courants["Heure_Arrivee"] = None
-                st.session_state.sites_courants["Heure_Fin"] = None
+            prec_score_gain = -1 #le temps de service gagné à l'étape n-1 (permet d'arreter la boucle si pas de gain )
+            current_score_gain = 0 #le temps de service gagné à l'étape n 
+            id_a_ajouter = 0 #l'id du site à ajouter
 
-            elif (len(st.session_state.sites_courants) == 1) : 
-                st.error("Un seul site -> pas d'optimisation de tournée")
-                st.session_state.sites_courants["Heure_Arrivee"] = None
-                st.session_state.sites_courants["Heure_Fin"] = None
+            solution_a_garder = None
 
-            elif tournee_courante is not None:
 
-                print('################################')
+            #boucle pour ajouter tous les sites possibles à la tournée du matin 
+            while current_score_gain - prec_score_gain > 0 : #si le temps 'gain' n'a pas changé, c'est qu'on a ajouté le max de site
+                #cette boucle nest pas optimal car on pourrait avoir une situation comme 
+                # - 4h libre
+                # -  un site avec 2h de temps de service pour 1h de trajet = 1h de trajet et 2h de travail 
+                # 2 sites très proches entre eux (=10min de trajet) avec 1h25 chacun de service et 1h de trajet pour y aller = 1h10 de trajet et 2h50 de travail
+                #on va choisir le premier avec site alors que la 2eme config est meilleure 
 
-                print(st.session_state.sites_courants)
-                st.session_state.sites_courants['Heure_Arrivee'] = None
-                st.session_state.sites_courants['Heure_Fin'] = None
-                st.session_state.sites_courants['Ordre'] = None
-                st.session_state.sites_courants = st.session_state.sites_courants.drop('Heure_Arrivee', axis=1)
-                st.session_state.sites_courants = st.session_state.sites_courants.drop('Heure_Fin', axis=1)
-                st.session_state.sites_courants = st.session_state.sites_courants.drop('Ordre', axis=1)
-                colonnes_a_joindre = tournee_courante[['ID_Site', 'Heure_Arrivee', 'Heure_Fin','Ordre']]
+                prec_score_gain = current_score_gain 
+                id_a_ajouter = 0 #l'identifiant du site à ajouter à la tournée
+                solution_a_garder = None
 
-                print(st.session_state.sites_courants)
+                for index_row, row_series in site_ouvert_matin_aprem.iterrows():
 
-                
-                st.session_state.sites_courants = pd.merge(
-                    st.session_state.sites_courants,
-                    colonnes_a_joindre,
-                    on='ID_Site',       # La colonne commune pour la correspondance
-                    how='left'          # 'left' pour garder toutes les lignes de la table de gauche
+                    sites_test = current_site.copy()
+                    row_df = row_series.to_frame().T #on récupère la ligne et on la transfrome en dataFrame
+                    row_df.columns = current_site.columns 
+                    sites_test = pd.concat([sites_test, row_df], ignore_index=True) #pour ajouter la ligne au dataFrame de test
+
+                    plage_horaire_reduit, _,_ = ajuster_horaire_matin(horaire_tech, sites_test)
+                    matrice_duration_reduite = reduire_taille(durations,sites_test)
+
+
+                    new_solution = appliquer_solveur(sites_test,matrice_duration_reduite, plage_horaire_reduit)
                     
-                )
-                print(st.session_state.sites_courants)
 
+                    if new_solution is not None : 
+                        temps_tournee = new_solution[new_solution['Ordre']==max(new_solution['Ordre'].to_list())]['Heure_Fin'].iloc[0] 
+                        #on prend l'heure de fin de service du dernier site = l'heure de la fin de la tournée
+                        temps_tournee = transformer_horaire.heure_str_vers_minutes(temps_tournee)
+                        temps_service = sites_test['Temps_Total_Service'].sum()
+
+
+                        if temps_service/temps_tournee > current_score_gain : 
+                            #on utilise un rapport entre le temps de tournée 
+                            current_score_gain = temps_service/temps_tournee
+                            id_a_ajouter = row_df['ID_Site'].iloc[0]
+
+                            solution_a_garder = new_solution
                 
-            else:
-                st.error("⚠️ Alerte : Le planning est surchargé ou les horaires ne permettent pas de tout caser.")
-                st.session_state.sites_courants["Heure_Arrivee"] = None
-                st.session_state.sites_courants["Heure_Fin"] = None
-                st.session_state.sites_courants["Ordre"] = None
+                if solution_a_garder is not None : 
+                    solution = solution_a_garder
+                    ligne_a_ajouter_df = site_ouvert_matin_aprem[site_ouvert_matin_aprem['ID_Site'] == id_a_ajouter]
+                    for indexrow, ligne in current_site.iterrows():
+                        if(ligne['ID_Site'] in ligne_a_ajouter_df) :
+                            ligne['Heure_Fin'] = ligne_a_ajouter_df[ligne_a_ajouter_df['ID_Site']==ligne['ID_Site']]['Heure_Fin']
+                            ligne['Temps_Total_Service'] = ligne_a_ajouter_df[ligne_a_ajouter_df['ID_Site']==ligne['ID_Site']]['Temps_Total_Service'] + ligne['Temps_Total_Service']
+                            ligne_a_ajouter_df = ligne_a_ajouter_df[~ligne_a_ajouter_df['ID_Site']==ligne['ID_Site']]
+                    current_site_maj = pd.concat([current_site, ligne_a_ajouter_df], ignore_index=True)
+                    current_site = current_site_maj
+                    site_ouvert_matin_aprem = site_ouvert_matin_aprem[~site_ouvert_matin_aprem['ID_Site'].isin(current_site['ID_Site'].to_list())]
 
-            if st.session_state.sites_courants["Ordre"] is not None :
-                st.session_state.sites_courants.sort_values('Ordre', ascending=True, inplace=True)
 
-            colonnes_visibles = ["Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr","Temps_Total_Service","Heure_Arrivee","Heure_Fin"]
-            edited_df = st.data_editor(st.session_state.sites_courants[colonnes_visibles], hide_index=True, width='stretch')
+                    if(sites[~sites['ID_Site'].isin(current_site['ID_Site'].to_list())].empty) : 
+                        return solution
+                        
             
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("⬅️ Modifier la sélection"):
-                    st.session_state.etape = 2
-                    st.rerun()
-            with col_btn2:
-                if st.button("🔄 Recalculer"):
-                    edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
-                    noms_choisis = edited_df["Nom"].tolist()
-                    details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
+            
+            sites_a_visiter = sites.copy()
 
-                    sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
-                    st.session_state.sites_courants = sites_finaux
+            dernier_site_id = -1
+            
 
-                    st.rerun()
-                if st.button("✅ Valider ce planning"):
+            if solution is not None :
+                heure_fin_matin = solution[solution['Ordre']==max(solution['Ordre'].to_list())]['Heure_Fin'].iloc[0]
+                sites_a_visiter = sites_a_visiter[~sites_a_visiter['ID_Site'].isin(solution['ID_Site'].to_list())].copy()
+                dernier_site_id = solution[solution['Ordre'] == solution['Ordre'].to_list()[-1]]['ID_Site'].iloc[0]
 
-                    edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
-                    noms_choisis = edited_df["Nom"].tolist()
-                    details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
+                depot_depart_df = sites[sites['ID_Site'] == dernier_site_id].copy()
+                depot_depart_df['Temps_Total_Service'] = 0 
 
-                    sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
-                    st.session_state.sites_courants = sites_finaux
-
-                    st.session_state.resultat_tournee = tournee_courante
-                    st.session_state.etape = 4
-                    st.rerun()
                 
 
-        with col_suggestions:
-            st.subheader("💡 Suggestions")
-            if st.button("✨ Remplir la journée automatiquement", type="primary"):
-                edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
-                noms_choisis = edited_df["Nom"].tolist()
-                details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
-                sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
-                st.session_state.sites_courants = sites_finaux
 
-                st.info("Logique d'auto-remplissage à implémenter ici !")
+            else : 
+                debut_tech, _ = horaire_tech.split('-')
+                heure_fin_matin = debut_tech
+                
 
-            groupe = st.session_state.groupement_choisi
-            noms_presents = st.session_state.sites_courants["Nom"].tolist()
-        
-            sites_dispos = st.session_state.site[
-                (st.session_state.site["Groupement"] == groupe) &
-                (~st.session_state.site["Nom"].isin(noms_presents)) 
-            ]
-        
-            if sites_dispos.empty:
-                st.info("Tous les sites du groupe sont inclus.")
-            else:
-                for _, site in sites_dispos.iterrows():
-                    with st.container(border=True):
-                        st.write(f"**{site['Nom']}**")
-                        st.caption(f"{site['Horaires']}")
-                        st.caption(f"Durée PEC : {site['Temps_PEC']} min")
-                        if st.button(f"Ajouter à la journée", key=f"add_{site['ID_Site']}"):
-                            edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
-                            noms_choisis = edited_df["Nom"].tolist()
-                            details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
+            duration_reduit = reduire_taille(durations,sites_a_visiter)
+            duration_liste = dataFrame_en_matrice(durations)
 
-                            sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
-                            st.session_state.sites_courants = sites_finaux
+            heure_fin_matin = transformer_horaire.heure_str_vers_minutes(heure_fin_matin)
 
-                            nouveau = pd.DataFrame([site])
-                            nouveau["Temps_Total_Service"] = site["Temps_PEC"]
-                            nouveau["Maint_Prev"] = 0
-                            nouveau["Maint_Corr"] = 0
-                            nouveau['ID_Site']=site['ID_Site']
-                            st.session_state.sites_courants = pd.concat([st.session_state.sites_courants, nouveau], ignore_index=True)
-                            st.rerun()
+            liste_solutions = []
+            plage_horaire_reduit,_,_ = ajuster_horaire_matin(horaire_tech,sites_a_visiter)
+            index = 0 
 
-    # --- ÉTAPE 3 : SAUVEGARDE ---
-    elif st.session_state.etape == 4:
-        st.header("3. Validation et Sauvegarde")
+
+            for indexrow,site in sites_a_visiter.iterrows() : 
+                
+                sites_test = sites_a_visiter.copy()
+                trajet = 0 
+
+
+                if dernier_site_id > 0 : 
+                    #si on a déjà vu au moins un site avant 
+                    trajet = duration_liste[dernier_site_id -1][int(site['ID_Site'])-1]
+                    heure_fin_matin = heure_fin_matin + trajet
+
+
+                if heure_fin_matin > plage_horaire_reduit[index][1] :
+                    #si après le trajet on n'est plus sur la plage horaire du matin
+                    #le depot est le site après le trajet 
+
+
+
+                    plage_horaire_aprem = ajuster_horaire_aprem(horaire_tech,sites_test,heure_fin_matin)
+                    service_avant_pause = 0 
+
+                    #sites_a_visiter = pd.concat([depot_depart_df,sites_a_visiter],ignore_index=True)
+                    duration_reduit = reduire_taille(durations,sites_a_visiter)
+                    duration_reduit_modif = duration_reduit.copy()
+
+
+                    for i in range(len(duration_reduit_modif)) : 
+                        duration_reduit_modif[i][0] = 0 
+                    solution_local = appliquer_solveur_avec_depot(sites_a_visiter,duration_reduit_modif, plage_horaire_aprem,0,service_avant_pause,heure_fin_matin)
+                
+
+                else : #on découpe le temps de travail avant et après la pause 
+                    service_avant_pause = plage_horaire_reduit[index][1] - heure_fin_matin #temps de travail avant la pause 
+
+                    
+                    sites_test[sites_test['ID_Site']==site['ID_Site']]['Temps_Total_Service'] = site['Temps_Total_Service'] - service_avant_pause #temps restant de travail 
+                    
+                    plage_horaire_aprem = ajuster_horaire_aprem(horaire_tech,sites_test,heure_fin_matin + service_avant_pause)
+                    duration_reduit = reduire_taille(durations,sites_a_visiter)
+                    duration_reduit_modif = duration_reduit.copy()
+
+                    for i in range(len(duration_reduit_modif)) : 
+                        duration_reduit_modif[i][index] = 0 
+
+                    solution_local = appliquer_solveur_avec_depot(sites_a_visiter,duration_reduit_modif, plage_horaire_aprem,index,service_avant_pause,heure_fin_matin)
+
+
+                if solution_local is not None : 
+                    print(solution_local)
+                    liste_solutions.append(solution_local)
+                index +=1
+            
+            if liste_solutions != [] : 
+                solution_a_garder = best_itineraire(liste_solutions)
+                solution_a_garder['Ordre'] = solution_a_garder['Ordre'] + max(solution['Ordre'].to_list())
+                solution = pd.concat([solution, solution_a_garder], ignore_index=True)
+
+            if index > 0 and solution is None : 
+                return None
+            else : 
+                return solution 
+
+
+def best_itineraire (liste_itineraire) : 
+    #la meilleure tournée est celle qui fini le plus tôt 
+    #Car je pense qu'il est mieux de finir la journée plus tôt (donc ajouter un site si on gagne du temps)
+    #de plus pour la poste, les sites qui ouvrent tot sont rares 
+
+    print("LISTE SOLUTIONS ")
+
+    print(liste_itineraire)
+
+    meilleur_itineraire = None
+    fin_meilleur_itineraire = 1439 #23h59
+    for itineraire in liste_itineraire : 
+
+        print(itineraire)
+        heure_fin_itineraire = transformer_horaire.heure_str_vers_minutes(itineraire[itineraire['Ordre'] == itineraire['Ordre'].to_list()[-1]]['Heure_Fin'].iloc[0])
+        if heure_fin_itineraire < fin_meilleur_itineraire : 
+            fin_meilleur_itineraire = heure_fin_itineraire
+            meilleur_itineraire = itineraire
+
+    return meilleur_itineraire
+
+
+def dataFrame_en_matrice(df_matrice) : 
+    matrice_liste = df_matrice.copy()
+    matrice_liste = matrice_liste.drop('id',axis=1).to_numpy().tolist()
+
+
+    for i in range (len(matrice_liste)) :
+        for j in range (len(matrice_liste)) :
+            current_value = matrice_liste[i][j]
+
+            if isinstance(current_value, float) and current_value != current_value : 
+                matrice_liste[i][j] =0
+            try:
+                matrice_liste[i][j] = round(float(matrice_liste[i][j])/60)
+            except ValueError:
+                # Cette partie ne devrait normalement pas être atteinte si les '' et NaN sont bien gérés,
+                # mais elle sert de filet de sécurité pour tout autre type de donnée non numérique inattendu.
+                print(f"Attention : La valeur '{matrice_liste[i][j]}' à la position [{i}][{j}] n'a pas pu être convertie en nombre. Elle sera traitée comme 0.")
+                matrice_liste[i][j] = 0
+
     
-        if st.session_state.resultat_tournee is not None:
-            st.success("La tournée est optimisée et prête à être transmise.")
-            st.dataframe(st.session_state.resultat_tournee, width='stretch')
+    return matrice_liste
+
+def reduire_taille(durations, sites_df ) :
+    """Fonvtion qui fait une copie de la matrice de durée et ne renvoie que les durée qui nous intéresse
+    Entrée :
+        -Matrice de duration
+        -Liste de site
+    Sortie :
+        -Matrice réduite"""
+    
+    
+    duration_liste  = durations.copy()
+    duration_liste = duration_liste.drop('id',axis=1).to_numpy().tolist() 
+    for i in range (len(duration_liste)) :
+        for j in range (len(duration_liste)) :
+            if duration_liste[i][j]=='' : 
+                duration_liste[i][j] =0
+
+    
+    
+    id_a_garder = sites_df['ID_Site'].tolist()
+
+
+
+    index_a_garder = [int(num) for num in id_a_garder]
+
+    duration_filtre = [
+        [round(float(duration_liste[ligne - 1][colonne - 1])/60) for colonne in id_a_garder] for ligne in index_a_garder]
+    
+
+
+    return duration_filtre
+    
+
+
+def ajuster_horaire_matin(horaire_tech, sites_df) : 
+    """Fonction qui transforme les horaires matinals des sites pour correspondre aux horaires du technicien
+    Entrée : 
+        - Horaire du technicien
+        - Tableau des horaires des sites 
+    Sortie : 
+        -horaire format : [(**,**),...,(**,**)]
         
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                if st.button("💾 Confirmer l'enregistrement"):
-                    st.success("Tournée non enregistréepour le moment !")
-            with col_f2:
-                if st.button("🔄 Créer une autre tournée"):
-                    st.session_state.etape = 1
-                    st.session_state.sites_courants = pd.DataFrame()
-                    st.session_state.resultat_tournee = None
-                    st.rerun()
-        else:
-            st.warning("Aucune donnée à sauvegarder.")
-            if st.button("Retour"):
-                st.session_state.etape = 1
-                st.rerun()
+    Exemple : 
+        -Site A : 09:00-11:30 / 14:00-18:00
+        - Horaire technicien = 08:00-17:00 (on applique nous-même la pause du midi entre 11h45 et 12h30 avec une durée de 1h30)
+        
+        => 09:00-11:30"""
+    
+    debut_tech , fin_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
+
+    ouverture_matin = sites_df['Ouv_Matin'].tolist()
+    fermeture_matin = sites_df['Ferm_Matin'].tolist()
+
+    ouverture_aprem = sites_df['Ouv_Aprem'].tolist()
+
+    ids = sites_df['ID_Site'].tolist()
+
+    id_site_ouvert_seulement_matin = []
+    id_site_ouvert_matin = []
+
+    plage_horaire_matin = []
+    for i in range(len(ouverture_matin)) : 
+        if(ouverture_matin[i] < 660 and ouverture_matin[i] > 0) : 
+            new_plage_matin = (max(debut_tech, ouverture_matin[i]), min(750, fermeture_matin[i]))
+            id_site_ouvert_matin.append(ids[i])
+            #max 12h40 pour la pause du midi
+            if ouverture_aprem[i] == 0  :
+                id_site_ouvert_seulement_matin.append(ids[i])
+        else : 
+            new_plage_matin = (0,0)
+
+        plage_horaire_matin.append(new_plage_matin)
+
+    
+    return plage_horaire_matin, id_site_ouvert_seulement_matin,id_site_ouvert_matin
+
+
+
+def ajuster_horaire_aprem(horaire_tech, sites_df,heure_fin_matin) : 
+    """Fonction qui transforme les horaires matinals des sites pour correspondre aux horaires du technicien
+    Entrée : 
+        - Horaire du technicien
+        - Tableau des horaires des sites 
+    Sortie : 
+        -horaire format : [(**,**),...,(**,**)]"""
+    
+    _ , fin_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
+    debut_tech = heure_fin_matin + 90
+    if debut_tech> fin_tech : 
+        plage_horaire_aprem = []
+        for i in range(len(ouverture_matin)) :
+            plage_horaire_aprem.append((0,0))
+        return plage_horaire_aprem
+
+    ouverture_matin = sites_df['Ouv_Matin'].tolist()
+    fermeture_matin = sites_df['Ferm_Matin'].tolist()
+
+    ouverture_aprem = sites_df['Ouv_Aprem'].tolist()
+    fermeture_aprem = sites_df['Ferm_Aprem'].tolist()
+
+    ids = sites_df['ID_Site'].tolist()
+
+
+    id_site_ouvert_seulement_aprem = []
+
+
+    plage_horaire_aprem = []
+    for i in range(len(ouverture_matin)) : 
+        print('((((((((((((((((((((((((((()))))))))))))))))))))))))))')
+
+        if fermeture_matin[i] > 840 : 
+            #si le site est ouvert en continu
+            new_plage_aprem = (debut_tech,  min(fin_tech, fermeture_matin[i]))
+            
+        elif ouverture_matin[i] > 660 : 
+            #si le site est ouvert que l'aprem
+            new_plage_aprem = (max(debut_tech, ouverture_matin[i]), min(fin_tech, fermeture_matin[i]))
+            id_site_ouvert_seulement_aprem.append(ids[i])
+
+        elif ouverture_aprem[i] > 0 :
+            
+            new_plage_aprem = (max(debut_tech, ouverture_aprem[i]), min(fin_tech, fermeture_aprem[i]))
+            print(debut_tech)
+            print(max(debut_tech, ouverture_aprem[i]))
+
+        
+        else : 
+            new_plage_aprem = (0,0)
+
+        plage_horaire_aprem.append(new_plage_aprem)
+
+    return plage_horaire_aprem
+
+
+
+
+def appliquer_solveur(sites_df, duration_reduit,horaire) :
+    """Foncion qui applique le solveur 
+    Entrée : 
+        -data avec ime_matrix, services_times, time_windows, num_vehicles,depot
+    Sortie : 
+        - ordre de visite des sites
+    """
+    if(len(duration_reduit)==0):
+        return None
+    
+    
+    temps_service_tot =  sites_df['Temps_Total_Service'].sum() 
+
+    min_ouverture = 1439
+    max_fermeture = 0
+
+    for (ouverture, fermeture) in horaire : 
+        if ouverture < min_ouverture : 
+            min_ouverture = ouverture 
+        if fermeture > max_fermeture :
+            max_fermeture = fermeture
+
+    approx_dispo_horaire = max_fermeture - min_ouverture
+
+    if (temps_service_tot > approx_dispo_horaire) : 
+        return None
+    
+
+    
+
+    depot_virtuel_nom = "Dépôt Virtuel"
+    depot_virtuel_id = 9999
+    depot_virtuel_horaire = "00:00-23:55"
+    depot_virtuel_row = pd.DataFrame([{
+        'Nom': depot_virtuel_nom,
+        'Horaires': depot_virtuel_horaire,
+        'Temps_PEC' : 0,
+        'Maint_Prev' :0 ,
+        'Maint_Corr': 0,
+        'Temps_Total_Service': 0,
+        'Ouv_Matin': 0,
+        'Ferm_Matin':1080,
+        'Ouv_Aprem' : 0,
+        'Ferm_Aprem' : 1080,
+        'ID_Site': depot_virtuel_id,
+        
+    }])
+
+    sites_df_avec_depot = pd.concat([depot_virtuel_row, sites_df], ignore_index=True)
+
+    duration_reduit_avec_depot = duration_reduit.copy()
+    for ligne in duration_reduit_avec_depot:
+        ligne.insert(0, 0)
+        
+    longueur_ligne = len(duration_reduit_avec_depot[0])
+    nouvelle_ligne_de_zeros = [0] * longueur_ligne
+    duration_reduit_avec_depot.insert(0, nouvelle_ligne_de_zeros)
+
+    horaire_avec_depot = horaire.copy()
+
+    horaire_avec_depot.insert(0,(0,1080))
+
+    
+    data = {}
+
+    data['time_matrix'] = duration_reduit_avec_depot
+    
+    data['num_vehicles'] = 1
+    data['depot'] = 0
+
+    data['time_service'] = sites_df_avec_depot['Temps_Total_Service'].tolist()
+    data['time_windows'] = horaire_avec_depot
+
+    print("appliquer_solveur : ")
+
+    print(data)
+
+    
+
+    
+ 
+    manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
+    routing = pywrapcp.RoutingModel(manager)
+    
+    def time_callback(from_index, to_index):
+        from_node = manager.IndexToNode(from_index)
+        to_node = manager.IndexToNode(to_index)
+        # On ne paie le trajet que si on ne sort pas/rentre pas au dépôt virtuel
+        return data['time_matrix'][from_node][to_node] + data['time_service'][from_node]
+    
+    transit_callback_index = routing.RegisterTransitCallback(time_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+    routing.AddDimension(
+        transit_callback_index,
+        60, # Temps d'attente autorisé (si on arrive trop tôt sur un site)
+        1080, # Temps maximum cumulé (fin de journée)
+        False,
+        'Time'
+    )
+    time_dimension = routing.GetDimensionOrDie('Time')
+
+    for location_idx, time_window in enumerate(data['time_windows']):
+        index = manager.NodeToIndex(location_idx)
+        time_dimension.CumulVar(index).SetRange(time_window[0], time_window[1]- data['time_service'][location_idx])
+
+    
+    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    search_parameters.time_limit.seconds = 2
+
+    solution = routing.SolveWithParameters(search_parameters)
+    
+    if solution:
+        itineraire = []
+        index = routing.Start(0)
+        while not routing.IsEnd(index):
+            node = manager.IndexToNode(index)
+            time_var = time_dimension.CumulVar(index)
+            min_time = solution.Min(time_var)
+            itineraire.append({
+                "Ordre": len(itineraire) + 1,
+                "Lieu": sites_df_avec_depot.iloc[node]["Nom"],
+                "ID_Site" : int(sites_df_avec_depot.iloc[node]['ID_Site']),
+                "Horaires": sites_df_avec_depot.iloc[node]["Horaires"],
+                "Total Service": f"{data['time_service'][node]} min",
+                "Heure_Arrivee": f"{min_time // 60:02d}:{min_time % 60:02d}",
+                "Heure_Fin": f"{(min_time + data['time_service'][node]) // 60:02d}:{(min_time + data['time_service'][node]) % 60:02d}"
+            })
+            index = solution.Value(routing.NextVar(index))
+            print(itineraire)
+        return pd.DataFrame(itineraire)
+    else : 
+        print("Aucune solution")
+        return None
+
+
+def appliquer_solveur_avec_depot(sites_df, duration_reduit,horaire,index_depot, temps_service_avant_pause,heure_fin_matin) :
+    """Foncion qui applique le solveur avec un point de depart donné
+    Retourne la tournée de l'après-midi (sans le dépôt) et les infos de fin du dépôt
+    """
+    data = {}
+
+    data['time_matrix'] = duration_reduit
+    
+    data['num_vehicles'] = 1
+    data['depot'] = index_depot
+    time_service = sites_df['Temps_Total_Service'].tolist()
+    time_service[index_depot] = time_service[index_depot] - temps_service_avant_pause
+    data['time_service'] = time_service
+
+    data['time_windows'] = horaire
+
+    print("appliquer solveur avec depot")
+    print(data)
+
+    print(heure_fin_matin)
+    print(horaire)
+ 
+    manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
+    routing = pywrapcp.RoutingModel(manager)
+    
+    def time_callback(from_index, to_index):
+        from_node = manager.IndexToNode(from_index)
+        to_node = manager.IndexToNode(to_index)
+        # On ne paie le trajet que si on ne sort pas/rentre pas au dépôt virtuel
+        return data['time_matrix'][from_node][to_node] + data['time_service'][from_node]
+    
+    transit_callback_index = routing.RegisterTransitCallback(time_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+    routing.AddDimension(
+        transit_callback_index,
+        60, # Temps d'attente autorisé (si on arrive trop tôt sur un site)
+        1080, # Temps maximum cumulé (fin de journée)
+        False,
+        'Time'
+    )
+    time_dimension = routing.GetDimensionOrDie('Time')
+
+    for location_idx, time_window in enumerate(data['time_windows']):
+        index = manager.NodeToIndex(location_idx)
+        if (time_window[0] >  time_window[1]- data['time_service'][location_idx]) :
+            return None
+        time_dimension.CumulVar(index).SetRange(time_window[0], time_window[1]- data['time_service'][location_idx])
+
+    
+    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    search_parameters.time_limit.seconds = 2
+
+    solution = routing.SolveWithParameters(search_parameters)
+    
+    if solution:
+        itineraire = []
+        index = routing.Start(0)
+        while not routing.IsEnd(index):
+            node = manager.IndexToNode(index)
+            time_var = time_dimension.CumulVar(index)
+            min_time = solution.Min(time_var)
+             
+            if node !=index_depot :
+                
+        
+                itineraire.append({
+                    "Ordre": len(itineraire) + 1,
+                    "Lieu": sites_df.iloc[node]["Nom"],
+                    "ID_Site" : int(sites_df.iloc[node]['ID_Site']),
+                    "Horaires": sites_df.iloc[node]["Horaires"],
+                    "Total Service": f"{data['time_service'][node]} min",
+                    "Heure_Arrivee": f"{min_time // 60:02d}:{min_time % 60:02d}",
+                    "Heure_Fin": f"{(min_time + data['time_service'][node]) // 60:02d}:{(min_time + data['time_service'][node]) % 60:02d}"
+                })
+
+            else : 
+            
+                itineraire.append({
+                    "Ordre": len(itineraire) + 1,
+                    "Lieu": sites_df.iloc[node]["Nom"],
+                    "ID_Site" : int(sites_df.iloc[node]['ID_Site']),
+                    "Horaires": sites_df.iloc[node]["Horaires"],
+                    "Total Service": f"{data['time_service'][node] + temps_service_avant_pause} min",
+                    "Heure_Arrivee": f"{(heure_fin_matin  - temps_service_avant_pause) // 60:02d}:{(heure_fin_matin - temps_service_avant_pause) % 60:02d}",
+                    "Heure_Fin": f"{(min_time + data['time_service'][node]) // 60:02d}:{(min_time + data['time_service'][node]) % 60:02d}"
+                })
+            
+
+
+            index = solution.Value(routing.NextVar(index))
+            print(itineraire)
+        return pd.DataFrame(itineraire)
+    else : 
+        print("Aucune solution")
+        return None
 
