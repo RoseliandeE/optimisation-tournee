@@ -94,7 +94,7 @@ def charger_donnees(date_selectionnee):
     df_sites["ID_Site"] = df_merged["idSite"]
     df_sites["Nom"] = df_merged["NomSite"]
     df_sites["Groupement"] = df_merged["nom"]
-    temps_pec_heures = pd.to_numeric(df_merged["Nb_Heures"].str.replace(',', '.'), errors='coerce').fillna(0)
+    temps_pec_heures = pd.to_numeric(df_merged["Nb_Heures"], errors='coerce').fillna(0)
     df_sites["Temps_PEC"] = (temps_pec_heures * 60).astype(int)
     df_sites["Maint_Prev"] = 0 
     df_sites["Maint_Corr"] = 0 
