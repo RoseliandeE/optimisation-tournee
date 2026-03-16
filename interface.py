@@ -185,7 +185,96 @@ if check_mot_de_passe():
         date = st.date_input("Date d'intervention")
         
         if st.button("✅ Valider cette date"):
-            st.session_state.site,st.session_state.duration  = charger_donnees(date)
+            try:
+                sites_file = "sites.csv"
+                durations_file = "durations.csv"
+                distances_file = "distance.csv"
+                home_site_durations_file = "durations_sites_maison.csv"
+                tournees_file = "tournees.csv"
+                horaires_file = "synthese_horaires_sites.csv"
+        
+                df_sites_original = pd.read_csv(sites_file, sep=';', encoding="utf-8")
+                
+                df_durees_temp = pd.read_csv(durations_file, sep=';', encoding='utf-8')
+                df_durees_temp = df_durees_temp[df_durees_temp['id']>0]
+                df_durees_temp = df_durees_temp.drop('nom',axis=1)
+                df_durees_temp = df_durees_temp.drop('cluster',axis=1)
+        
+                df_distances_temp = pd.read_csv(distances_file, sep=';', encoding='utf-8')
+                df_home_site_durations_temp = pd.read_csv(home_site_durations_file, sep=';', encoding='latin-1')
+                df_tournees = pd.read_csv(tournees_file, sep=';', encoding='latin-1')
+                df_horaires_temp = pd.read_csv(horaires_file, sep=';', encoding='utf-8')
+        
+        
+            except FileNotFoundError as e:
+                st.error(f"Fichier manquant : {e}. Veuillez vérifier que tous les CSV sont présents.")
+                return pd.DataFrame(),pd.DataFrame()
+            
+            
+        
+            df_horaires = df_horaires_temp.copy()
+            df_horaires['Date_calendrier'] = pd.to_datetime(df_horaires['Date_calendrier'], format='%d/%m/%Y', errors='coerce')
+            horaires_du_jour = df_horaires[df_horaires['Date_calendrier'].dt.date == date].copy()
+        
+            #Fusion des données
+            df_merged = pd.merge(df_sites_original, df_tournees, left_on='cluster', right_on='numTournée', how='left')
+            
+            horaires_du_jour = horaires_du_jour.drop(['NomSite','Typologie MTK'], axis=1)
+            df_merged = pd.merge(df_merged, horaires_du_jour, on='idSite', how='left')
+        
+            #CRÉATION DU DATAFRAME FINAL 'df_sites'
+            df_sites = pd.DataFrame()
+            df_sites["ID_Site"] = df_merged["idSite"]
+            df_sites["Nom"] = df_merged["NomSite"]
+            df_sites["Groupement"] = df_merged["nom"]
+            temps_pec_heures = pd.to_numeric(df_merged["Nb_Heures"].str.replace(',', '.'), errors='coerce').fillna(0)
+            df_sites["Temps_PEC"] = (temps_pec_heures * 60).astype(int)
+            df_sites["Maint_Prev"] = 0 
+            df_sites["Maint_Corr"] = 0 
+        
+            
+            # Définition des horaires par défaut en minutes
+            default_ouv_matin = 480  # 08:00
+            default_ferm_matin = 720  # 12:00
+            default_ouv_aprem = 810  # 13:30
+            default_ferm_aprem = 1020 # 17:00
+            default_horaires_str = "08:00-12:00 | 13:30-17:00 (Défaut)"
+        
+            # Condition : identifier les lignes où aucune info d'horaire n'a été trouvée
+            sans_horaires_definis = pd.isna(df_merged['Date_calendrier'])
+        
+        
+            # Pour l'ouverture du matin
+            ouv_matin_reels = df_merged['Plage_horaire_1'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[0])
+            df_sites['Ouv_Matin'] = np.where(sans_horaires_definis, default_ouv_matin, ouv_matin_reels)
+        
+            # Pour la fermeture du matin
+            ferm_matin_reels = df_merged['Plage_horaire_1'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[1])
+            df_sites['Ferm_Matin'] = np.where(sans_horaires_definis, default_ferm_matin, ferm_matin_reels)
+        
+            # Pour l'ouverture de l'après-midi
+            ouv_aprem_reels = df_merged['Plage_horaire_2'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[0])
+            df_sites['Ouv_Aprem'] = np.where(sans_horaires_definis, default_ouv_aprem, ouv_aprem_reels)
+            
+            # Pour la fermeture de l'après-midi
+            ferm_aprem_reels = df_merged['Plage_horaire_2'].apply(optimisation_tournee.transformer_horaire.parser_plage_horaire).apply(lambda x: x[1])
+            df_sites['Ferm_Aprem'] = np.where(sans_horaires_definis, default_ferm_aprem, ferm_aprem_reels)
+        
+            # --- 6. CRÉATION DE LA COLONNE 'Horaires' LISIBLE (MODIFIÉ) ---
+            def formater_horaires_display(row):
+                h1 = row['Plage_horaire_1']
+                h2 = row['Plage_horaire_2']
+                if 'FERME' in str(h1).upper(): return "Fermé"
+                horaires_str = str(h1).strip() if pd.notna(h1) else ""
+                if pd.notna(h2) and str(h2).strip() != '': horaires_str += f" | {h2.strip()}"
+                return horaires_str
+        
+            horaires_reels_str = df_merged.apply(formater_horaires_display, axis=1)
+            df_sites['Horaires'] = np.where(sans_horaires_definis, default_horaires_str, horaires_reels_str)
+        
+            df_sites["Dans_Tournee_Defaut"] = False
+            st.session_state.site =df_sites
+            st.session_state.duration  = df_durees_temp
             st.session_state.etape = 2
             st.rerun()
         
