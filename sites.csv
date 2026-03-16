@@ -1,4 +1,4 @@
-idSite;NomSite;Typologie MTK;Adresse_Site;Code_postal;Ville;Nb_Heures;latitude;longitude;cluster
+idSite;NomSite;"Typologie MTK";Adresse_Site;Code_postal;Ville;Nb_Heures;latitude;longitude;cluster
 1;LHUIS GARAGE COMMUNAL;BP; AU BOURG;1680;LHUIS;11.17;45.7476606;5.5327073;5
 2;AMBERIEU EN BUGEY CDIS;PDC;29 AVENUE ANDRE CITROEN;1500;AMBERIEU EN BUGEY;1.08;45.9584309;5.3595099;3
 3;MEXIMIEUX BP;BP;7 PLACE LIEUTENANT GIRAUD;1800;MEXIMIEUX;1.5;45.904795;5.1923885;3
