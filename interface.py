@@ -56,7 +56,6 @@ def check_mot_de_passe() :
 
 
 #CHARGEMENT DES DONNÉES
-@st.cache_data
 
 def charger_donnees(date_selectionnee):
     try:
