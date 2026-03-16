@@ -186,7 +186,6 @@ if check_mot_de_passe():
         date = st.date_input("Date d'intervention")
         
         if st.button("✅ Valider cette date"):
-            st.write(date)
             st.session_state.site,st.session_state.duration  = charger_donnees(date)
             st.session_state.etape = 2
             st.rerun()
