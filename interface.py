@@ -251,7 +251,7 @@ if check_mot_de_passe():
 
     # --- ÉTAPE 2 : ATELIER D'AJUSTEMENT ---
     elif st.session_state.etape == 3:
-        st.header("2. Ajustement de la Tournée")
+        st.header("Ajustement de la Tournée")
         st.session_state.sites_courants["Temps_Total_Service"] = st.session_state.sites_courants["Temps_PEC"] + st.session_state.sites_courants["Maint_Prev"] + st.session_state.sites_courants["Maint_Corr"]
         tournee_courante = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
 
@@ -384,7 +384,7 @@ if check_mot_de_passe():
 
     # --- ÉTAPE 3 : SAUVEGARDE ---
     elif st.session_state.etape == 4:
-        st.header("3. Validation et Sauvegarde")
+        st.header("Validation et Sauvegarde")
     
         if st.session_state.resultat_tournee is not None:
             st.success("La tournée est optimisée et prête à être transmise.")
