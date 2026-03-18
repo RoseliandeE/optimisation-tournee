@@ -266,11 +266,13 @@ if check_mot_de_passe():
                 st.error("Aucun site dans la tournée")
                 st.session_state.sites_courants["Heure_Arrivee"] = None
                 st.session_state.sites_courants["Heure_Fin"] = None
+                st.session_state.sites_courants["Ordre"] = None
 
             elif (len(st.session_state.sites_courants) == 1) : 
                 st.error("Un seul site -> pas d'optimisation de tournée")
                 st.session_state.sites_courants["Heure_Arrivee"] = None
                 st.session_state.sites_courants["Heure_Fin"] = None
+                st.session_state.sites_courants["Ordre"] = None
 
             elif tournee_courante is not None:
 
