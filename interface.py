@@ -261,6 +261,7 @@ if check_mot_de_passe():
     
         with col_tournee:
             st.subheader("Planning calculé")
+            st.markdown(f"**Horaire du technicien :** *{st.session_state.horaire_tech}*")
             if (len(st.session_state.sites_courants) == 0) : 
                 st.error("Aucun site dans la tournée")
                 st.session_state.sites_courants["Heure_Arrivee"] = None
