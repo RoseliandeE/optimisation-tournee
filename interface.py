@@ -276,9 +276,6 @@ if check_mot_de_passe():
 
             elif tournee_courante is not None:
 
-                print('################################')
-
-                print(st.session_state.sites_courants)
                 st.session_state.sites_courants['Heure_Arrivee'] = None
                 st.session_state.sites_courants['Heure_Fin'] = None
                 st.session_state.sites_courants['Ordre'] = None
@@ -286,9 +283,6 @@ if check_mot_de_passe():
                 st.session_state.sites_courants = st.session_state.sites_courants.drop('Heure_Fin', axis=1)
                 st.session_state.sites_courants = st.session_state.sites_courants.drop('Ordre', axis=1)
                 colonnes_a_joindre = tournee_courante[['ID_Site', 'Heure_Arrivee', 'Heure_Fin','Ordre']]
-
-                print(st.session_state.sites_courants)
-
                 
                 st.session_state.sites_courants = pd.merge(
                     st.session_state.sites_courants,
@@ -297,8 +291,6 @@ if check_mot_de_passe():
                     how='left'          # 'left' pour garder toutes les lignes de la table de gauche
                     
                 )
-                print(st.session_state.sites_courants)
-
                 
             else:
                 st.error("⚠️ Alerte : Le planning est surchargé ou les horaires ne permettent pas de tout caser.")
