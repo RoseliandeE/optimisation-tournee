@@ -31,9 +31,6 @@ def optimiser_tournee(sites_df, durations_df,horaire_tech):
 
     #horaire du technicien sous forme de tuple de minutes ex : 8h-17h = (480,1020)
     debut_tech, fin_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
-    print('---------------------------------------------------')
-    print('debut optimisation')
-    print('---------------------------------------------------')
 
 
     if fin_tech < 780  : #si le tech fini avant 13h
@@ -231,7 +228,6 @@ def optimiser_tournee(sites_df, durations_df,horaire_tech):
 
 
                 if solution_local is not None : 
-                    print(solution_local)
                     liste_solutions.append(solution_local)
                 index +=1
             
@@ -251,15 +247,10 @@ def best_itineraire (liste_itineraire) :
     #Car je pense qu'il est mieux de finir la journée plus tôt (donc ajouter un site si on gagne du temps)
     #de plus pour la poste, les sites qui ouvrent tot sont rares 
 
-    print("LISTE SOLUTIONS ")
-
-    print(liste_itineraire)
-
     meilleur_itineraire = None
     fin_meilleur_itineraire = 1439 #23h59
     for itineraire in liste_itineraire : 
 
-        print(itineraire)
         heure_fin_itineraire = transformer_horaire.heure_str_vers_minutes(itineraire[itineraire['Ordre'] == itineraire['Ordre'].to_list()[-1]]['Heure_Fin'].iloc[0])
         if heure_fin_itineraire < fin_meilleur_itineraire : 
             fin_meilleur_itineraire = heure_fin_itineraire
@@ -284,7 +275,6 @@ def dataFrame_en_matrice(df_matrice) :
             except ValueError:
                 # Cette partie ne devrait normalement pas être atteinte si les '' et NaN sont bien gérés,
                 # mais elle sert de filet de sécurité pour tout autre type de donnée non numérique inattendu.
-                print(f"Attention : La valeur '{matrice_liste[i][j]}' à la position [{i}][{j}] n'a pas pu être convertie en nombre. Elle sera traitée comme 0.")
                 matrice_liste[i][j] = 0
 
     
@@ -397,7 +387,6 @@ def ajuster_horaire_aprem(horaire_tech, sites_df,heure_fin_matin) :
 
     plage_horaire_aprem = []
     for i in range(len(ouverture_matin)) : 
-        print('((((((((((((((((((((((((((()))))))))))))))))))))))))))')
 
         if fermeture_matin[i] > 840 : 
             #si le site est ouvert en continu
@@ -409,11 +398,7 @@ def ajuster_horaire_aprem(horaire_tech, sites_df,heure_fin_matin) :
             id_site_ouvert_seulement_aprem.append(ids[i])
 
         elif ouverture_aprem[i] > 0 :
-            
             new_plage_aprem = (max(debut_tech, ouverture_aprem[i]), min(fin_tech, fermeture_aprem[i]))
-            print(debut_tech)
-            print(max(debut_tech, ouverture_aprem[i]))
-
         
         else : 
             new_plage_aprem = (0,0)
@@ -497,14 +482,6 @@ def appliquer_solveur(sites_df, duration_reduit,horaire) :
 
     data['time_service'] = sites_df_avec_depot['Temps_Total_Service'].tolist()
     data['time_windows'] = horaire_avec_depot
-
-    print("appliquer_solveur : ")
-
-    print(data)
-
-    
-
-    
  
     manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
     routing = pywrapcp.RoutingModel(manager)
@@ -556,10 +533,8 @@ def appliquer_solveur(sites_df, duration_reduit,horaire) :
                 "Heure_Fin": f"{(min_time + data['time_service'][node]) // 60:02d}:{(min_time + data['time_service'][node]) % 60:02d}"
             })
             index = solution.Value(routing.NextVar(index))
-            print(itineraire)
         return pd.DataFrame(itineraire)
     else : 
-        print("Aucune solution")
         return None
 
 
@@ -579,12 +554,6 @@ def appliquer_solveur_avec_depot(sites_df, duration_reduit,horaire,index_depot, 
 
     data['time_windows'] = horaire
 
-    print("appliquer solveur avec depot")
-    print(data)
-
-    print(heure_fin_matin)
-    print(horaire)
- 
     manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
     routing = pywrapcp.RoutingModel(manager)
     
@@ -649,16 +618,14 @@ def appliquer_solveur_avec_depot(sites_df, duration_reduit,horaire,index_depot, 
                     "ID_Site" : int(sites_df.iloc[node]['ID_Site']),
                     "Horaires": sites_df.iloc[node]["Horaires"],
                     "Total Service": f"{data['time_service'][node] + temps_service_avant_pause} min",
-                    "Heure_Arrivee": f"{(heure_fin_matin  - temps_service_avant_pause) // 60:02d}:{(heure_fin_matin - temps_service_avant_pause) % 60:02d}",
+                    "Heure_Arrivee": f"{(heure_fin_matin) // 60:02d}:{(heure_fin_matin) % 60:02d}",
                     "Heure_Fin": f"{(min_time + data['time_service'][node]) // 60:02d}:{(min_time + data['time_service'][node]) % 60:02d}"
                 })
             
 
 
             index = solution.Value(routing.NextVar(index))
-            print(itineraire)
         return pd.DataFrame(itineraire)
     else : 
-        print("Aucune solution")
         return None
 
