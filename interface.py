@@ -264,25 +264,25 @@ if check_mot_de_passe():
             st.markdown(f"**Horaire du technicien :** *{st.session_state.horaire_tech}*")
             if (len(st.session_state.sites_courants) == 0) : 
                 st.error("Aucun site dans la tournée")
-                st.session_state.sites_courants["Heure_Arrivee"] = None
+                st.session_state.sites_courants["Heure_Debut"] = None
                 st.session_state.sites_courants["Heure_Fin"] = None
                 st.session_state.sites_courants["Ordre"] = None
 
             elif (len(st.session_state.sites_courants) == 1) : 
                 st.error("Un seul site -> pas d'optimisation de tournée")
-                st.session_state.sites_courants["Heure_Arrivee"] = None
+                st.session_state.sites_courants["Heure_Debut"] = None
                 st.session_state.sites_courants["Heure_Fin"] = None
                 st.session_state.sites_courants["Ordre"] = None
 
             elif tournee_courante is not None:
 
-                st.session_state.sites_courants['Heure_Arrivee'] = None
+                st.session_state.sites_courants['Heure_Debut'] = None
                 st.session_state.sites_courants['Heure_Fin'] = None
                 st.session_state.sites_courants['Ordre'] = None
-                st.session_state.sites_courants = st.session_state.sites_courants.drop('Heure_Arrivee', axis=1)
+                st.session_state.sites_courants = st.session_state.sites_courants.drop('Heure_Debut', axis=1)
                 st.session_state.sites_courants = st.session_state.sites_courants.drop('Heure_Fin', axis=1)
                 st.session_state.sites_courants = st.session_state.sites_courants.drop('Ordre', axis=1)
-                colonnes_a_joindre = tournee_courante[['ID_Site', 'Heure_Arrivee', 'Heure_Fin','Ordre']]
+                colonnes_a_joindre = tournee_courante[['ID_Site', 'Heure_Debut', 'Heure_Fin','Ordre']]
                 
                 st.session_state.sites_courants = pd.merge(
                     st.session_state.sites_courants,
@@ -294,14 +294,14 @@ if check_mot_de_passe():
                 
             else:
                 st.error("⚠️ Alerte : Le planning est surchargé ou les horaires ne permettent pas de tout caser.")
-                st.session_state.sites_courants["Heure_Arrivee"] = None
+                st.session_state.sites_courants["Heure_Debut"] = None
                 st.session_state.sites_courants["Heure_Fin"] = None
                 st.session_state.sites_courants["Ordre"] = None
 
             if st.session_state.sites_courants["Ordre"] is not None :
                 st.session_state.sites_courants.sort_values('Ordre', ascending=True, inplace=True)
 
-            colonnes_visibles = ["Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr","Temps_Total_Service","Heure_Arrivee","Heure_Fin"]
+            colonnes_visibles = ["Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr","Temps_Total_Service","Heure_Debut","Heure_Fin"]
             edited_df = st.data_editor(st.session_state.sites_courants[colonnes_visibles], hide_index=True, width='stretch')
             
             col_btn1, col_btn2 = st.columns(2)
