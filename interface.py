@@ -7,6 +7,7 @@ import optimisation_tournee
 #CHARGEMENT DES DONNÉES
 
 
+@st.cache_data
 
 def charger_dates_valides():
     """
@@ -59,16 +60,20 @@ def charger_donnees(date_selectionnee):
     try:
         sites_file = "sites.csv"
         durations_file = "durations.csv"
+        distances_file = "distance.csv"
+        home_site_durations_file = "durations_sites_maison.csv"
         tournees_file = "tournees.csv"
         horaires_file = "synthese_horaires_sites.csv"
 
-        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="utf-8")
+        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="latin-1")
         
         df_durees_temp = pd.read_csv(durations_file, sep=';', encoding='utf-8')
         df_durees_temp = df_durees_temp[df_durees_temp['id']>0]
         df_durees_temp = df_durees_temp.drop('nom',axis=1)
         df_durees_temp = df_durees_temp.drop('cluster',axis=1)
 
+        df_distances_temp = pd.read_csv(distances_file, sep=';', encoding='utf-8')
+        df_home_site_durations_temp = pd.read_csv(home_site_durations_file, sep=';', encoding='latin-1')
         df_tournees = pd.read_csv(tournees_file, sep=';', encoding='latin-1')
         df_horaires_temp = pd.read_csv(horaires_file, sep=';', encoding='utf-8')
 
@@ -94,7 +99,7 @@ def charger_donnees(date_selectionnee):
     df_sites["ID_Site"] = df_merged["idSite"]
     df_sites["Nom"] = df_merged["NomSite"]
     df_sites["Groupement"] = df_merged["nom"]
-    temps_pec_heures = pd.to_numeric(df_merged["Nb_Heures"], errors='coerce').fillna(0)
+    temps_pec_heures = pd.to_numeric(df_merged["Nb_Heures"].str.replace(',', '.'), errors='coerce').fillna(0)
     df_sites["Temps_PEC"] = (temps_pec_heures * 60).astype(int)
     df_sites["Maint_Prev"] = 0 
     df_sites["Maint_Corr"] = 0 
@@ -188,7 +193,7 @@ if check_mot_de_passe():
     # PARAMÉTRAGE
     if st.session_state.etape == 2:
         df_tournees = pd.read_csv("tournees.csv", sep=';', encoding='latin-1')
-        df_techniciens = pd.read_csv("technicien.csv", sep=';', encoding='utf-8')
+        df_techniciens = pd.read_csv("technicien.csv", sep=';', encoding='latin-1')
         df_techniciens['prenom nom']=df_techniciens['prenom'] + ' ' + df_techniciens['nom']
 
         st.header("Choix de la Tournée")
@@ -253,20 +258,20 @@ if check_mot_de_passe():
     elif st.session_state.etape == 3:
         st.header("Ajustement de la Tournée")
         st.session_state.sites_courants["Temps_Total_Service"] = st.session_state.sites_courants["Temps_PEC"] + st.session_state.sites_courants["Maint_Prev"] + st.session_state.sites_courants["Maint_Corr"]
-        tournee_courante = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
+        tournee_courante = st.session_state.resultat_tournee
 
 
     
-        col_tournee, col_suggestions = st.columns([2, 1])
+        col_tournee, col_suggestions = st.columns([3, 1])
     
         with col_tournee:
+            
             st.subheader("Planning calculé")
             st.markdown(f"**Horaire du technicien :** *{st.session_state.horaire_tech}*")
             if (len(st.session_state.sites_courants) == 0) : 
                 st.error("Aucun site dans la tournée")
                 st.session_state.sites_courants["Heure_Debut"] = None
                 st.session_state.sites_courants["Heure_Fin"] = None
-                st.session_state.sites_courants["Ordre"] = None
 
             elif (len(st.session_state.sites_courants) == 1) : 
                 st.error("Un seul site -> pas d'optimisation de tournée")
@@ -303,6 +308,8 @@ if check_mot_de_passe():
 
             colonnes_visibles = ["Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr","Temps_Total_Service","Heure_Debut","Heure_Fin"]
             edited_df = st.data_editor(st.session_state.sites_courants[colonnes_visibles], hide_index=True, width='stretch')
+            st.session_state.sites_courants["Temps_Total_Service"] = st.session_state.sites_courants["Temps_PEC"] + st.session_state.sites_courants["Maint_Prev"] + st.session_state.sites_courants["Maint_Corr"]
+            
             
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -317,6 +324,8 @@ if check_mot_de_passe():
 
                     sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
                     st.session_state.sites_courants = sites_finaux
+
+                    st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
 
                     st.rerun()
                 if st.button("✅ Valider ce planning"):
@@ -360,6 +369,7 @@ if check_mot_de_passe():
                         st.write(f"**{site['Nom']}**")
                         st.caption(f"{site['Horaires']}")
                         st.caption(f"Durée PEC : {site['Temps_PEC']} min")
+                        st.caption(f"Trajet supplémentaire : {0} min")
                         if st.button(f"Ajouter à la journée", key=f"add_{site['ID_Site']}"):
                             edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
                             noms_choisis = edited_df["Nom"].tolist()
