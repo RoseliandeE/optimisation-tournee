@@ -335,7 +335,7 @@ def ajuster_horaire_aprem(horaire_tech, sites_df,heure_fin_matin) :
 
         if fermeture_matin[i] > 840 : 
             #si le site est ouvert en continu
-            new_plage_aprem = (debut_tech,  min(fin_tech, fermeture_matin[i]))
+            new_plage_aprem = (max(debut_tech,ouverture_matin[i]),  min(fin_tech, fermeture_matin[i]))
             
         elif ouverture_matin[i] > 660 : 
             #si le site est ouvert que l'aprem
