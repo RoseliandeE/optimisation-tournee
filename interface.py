@@ -65,7 +65,7 @@ def charger_donnees(date_selectionnee):
         tournees_file = "tournees.csv"
         horaires_file = "synthese_horaires_sites.csv"
 
-        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="latin-1")
+        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="utf-8")
         
         df_durees_temp = pd.read_csv(durations_file, sep=';', encoding='utf-8')
         df_durees_temp = df_durees_temp[df_durees_temp['id']>0]
@@ -73,8 +73,8 @@ def charger_donnees(date_selectionnee):
         df_durees_temp = df_durees_temp.drop('cluster',axis=1)
 
         df_distances_temp = pd.read_csv(distances_file, sep=';', encoding='utf-8')
-        df_home_site_durations_temp = pd.read_csv(home_site_durations_file, sep=';', encoding='latin-1')
-        df_tournees = pd.read_csv(tournees_file, sep=';', encoding='latin-1')
+        df_home_site_durations_temp = pd.read_csv(home_site_durations_file, sep=';', encoding='utf-8')
+        df_tournees = pd.read_csv(tournees_file, sep=';', encoding='utf-8')
         df_horaires_temp = pd.read_csv(horaires_file, sep=';', encoding='utf-8')
 
 
