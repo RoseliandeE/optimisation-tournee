@@ -233,27 +233,18 @@ if check_mot_de_passe():
         with col2:
             st.text(f"Temps_PEC par défaut est le temps (en minute) prévu pour la prise en charge")
         
-        
-    
-        col_tournee, col_map = st.columns([4, 1])
-
-        with col_tournee : 
-            sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
+     
+        sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
             
-            sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
-            print(sites_du_groupe)
+        sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
         
-            colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
-            edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
+        colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
+        edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
 
-            liste_nom = edited_df[edited_df["À_Visiter"] == True]['Nom'].to_list()
-            liste_id = sites_du_groupe[sites_du_groupe["Nom"].isin(liste_nom)]['ID_Site'].to_list()
+        liste_nom = edited_df[edited_df["À_Visiter"] == True]['Nom'].to_list()
+        liste_id = sites_du_groupe[sites_du_groupe["Nom"].isin(liste_nom)]['ID_Site'].to_list()
         
-        with col_map : 
-            data = charger_data_gps(liste_id)
-            st.map(data)
-            st.markdown(f"*Dezoomer pour voir les points*")
-
+       
 
         col1,_,_,col4 = st.columns(4)
         with col1:
