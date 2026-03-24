@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 
 import optimisation_tournee
+import suggestions_sites
+
 
 #CHARGEMENT DES DONNÉES
 
@@ -77,6 +79,9 @@ def charger_donnees(date_selectionnee):
         df_tournees = pd.read_csv(tournees_file, sep=';', encoding='latin-1')
         df_horaires_temp = pd.read_csv(horaires_file, sep=';', encoding='utf-8')
 
+        df_data_gps = df_sites_original[['latitude','longitude']]
+        df_data_gps['ID_Site']= df_sites_original['idSite']
+
 
     except FileNotFoundError as e:
         st.error(f"Fichier manquant : {e}. Veuillez vérifier que tous les CSV sont présents.")
@@ -146,16 +151,14 @@ def charger_donnees(date_selectionnee):
 
     df_sites["Dans_Tournee_Defaut"] = False 
 
-    return df_sites,df_durees_temp
+    return df_sites,df_durees_temp,df_data_gps
 
 
 def charger_data_gps(liste_id):
     df_sites = pd.read_csv("sites.csv", sep=';', encoding="latin-1")
     df_sites = df_sites[df_sites['idSite'].isin(liste_id)]
     variables = ['latitude','longitude']
-    print(df_sites[variables])
     df_data_gps = df_sites[variables]
-    print(df_data_gps)
     return df_data_gps
 
 #INTERFACE STREAMLIT
@@ -182,6 +185,8 @@ if check_mot_de_passe():
         st.session_state.duration = pd.DataFrame()
     if 'tech' not in st.session_state:
         st.session_state.tech = ""
+    if 'coord' not in st.session_state : #coordonnées GPS
+        st.session_state.coord = pd.DataFrame
 
 
     #1ère page : choix de la date
@@ -191,7 +196,7 @@ if check_mot_de_passe():
         date = st.date_input("Date d'intervention")
         
         if st.button("✅ Valider cette date"):
-            st.session_state.site,st.session_state.duration  = charger_donnees(date)
+            st.session_state.site,st.session_state.duration,st.session_state.coord = charger_donnees(date)
             st.session_state.etape = 2
             st.rerun()
         
@@ -199,6 +204,7 @@ if check_mot_de_passe():
 
     # PARAMÉTRAGE
     if st.session_state.etape == 2:
+
         df_tournees = pd.read_csv("tournees.csv", sep=';', encoding='latin-1')
         df_techniciens = pd.read_csv("technicien.csv", sep=';', encoding='latin-1')
         df_techniciens['prenom nom']=df_techniciens['prenom'] + ' ' + df_techniciens['nom']
@@ -213,6 +219,7 @@ if check_mot_de_passe():
             st.text(f"Zone géographique du technicien : { df_tournees[df_tournees['numTournée']==num_tournee]['nom'].iloc[0]}")
             groupement = st.selectbox("Groupement géographique",df_tournees['nom'].tolist())
             st.session_state.groupement_choisi = groupement
+
 
         with col2:
             
@@ -232,54 +239,64 @@ if check_mot_de_passe():
             st.text(f"⚠️Tous les temps sont en minutes \nLe technicien travaille 7h30 dans sa journée = 450 minutes")
         with col2:
             st.text(f"Temps_PEC par défaut est le temps (en minute) prévu pour la prise en charge")
+        
+        
+        
+        
 
-        col_tournee, col_map = st.columns([5, 1])
+        col_tournee, col_map = st.columns([4, 1])
+
         with col_tournee : 
             sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
             
             sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
-            print(sites_du_groupe)
         
             colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
             edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
 
             liste_nom = edited_df[edited_df["À_Visiter"] == True]['Nom'].to_list()
             liste_id = sites_du_groupe[sites_du_groupe["Nom"].isin(liste_nom)]['ID_Site'].to_list()
+
+            col1,_,col2,_ = st.columns(4)
+            with col1:
+                if st.button("🔄 Changer la date"):
+                    st.session_state.etape = 1
+                    st.session_state.sites_courants = pd.DataFrame()
+                    st.session_state.resultat_tournee = None
+                    st.session_state.etape = 1 
+                    st.rerun()
+            
+            
+                
+
+            with col2 : 
+                if st.button("🚀 Calculer l'itinéraire"):
+                    sites_coches = edited_df[edited_df["À_Visiter"] == True].copy()
+                    sites_coches["Temps_Total_Service"] = sites_coches["Temps_PEC"] + sites_coches["Maint_Prev"] + sites_coches["Maint_Corr"]
+                
+                    noms_choisis = sites_coches["Nom"].tolist()
+                    details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
+                    sites_finaux = pd.merge(sites_coches, details_sites, on="Nom")
+                
+                    st.session_state.sites_courants = sites_finaux
+                    st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
+                    
+                    st.session_state.etape = 3
+                    st.rerun()
         
         with col_map : 
             data = charger_data_gps(liste_id)
             st.map(data)
             st.markdown(f"*Dezoomer pour voir les points*")
-        
-       
 
-        col1,_,_,col4 = st.columns(4)
-        with col1:
-            if st.button("🔄 Changer la date"):
-                st.session_state.etape = 1
-                st.session_state.sites_courants = pd.DataFrame()
-                st.session_state.resultat_tournee = None
-                st.session_state.etape = 1 
-                st.rerun()
-        with col4 : 
-            if st.button("🚀 Calculer l'itinéraire"):
-                sites_coches = edited_df[edited_df["À_Visiter"] == True].copy()
-                sites_coches["Temps_Total_Service"] = sites_coches["Temps_PEC"] + sites_coches["Maint_Prev"] + sites_coches["Maint_Corr"]
-            
-                noms_choisis = sites_coches["Nom"].tolist()
-                details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
-                sites_finaux = pd.merge(sites_coches, details_sites, on="Nom")
-            
-                st.session_state.sites_courants = sites_finaux
-                st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
-                
-                st.session_state.etape = 3
-                st.rerun()
+
+        
         
 
     # --- ÉTAPE 2 : ATELIER D'AJUSTEMENT ---
     elif st.session_state.etape == 3:
         st.header("Ajustement de la Tournée")
+        
         st.session_state.sites_courants["Temps_Total_Service"] = st.session_state.sites_courants["Temps_PEC"] + st.session_state.sites_courants["Maint_Prev"] + st.session_state.sites_courants["Maint_Corr"]
         tournee_courante = st.session_state.resultat_tournee
 
@@ -295,6 +312,7 @@ if check_mot_de_passe():
                 st.error("Aucun site dans la tournée")
                 st.session_state.sites_courants["Heure_Debut"] = None
                 st.session_state.sites_courants["Heure_Fin"] = None
+                st.session_state.sites_courants["Ordre"] = None
 
             elif (len(st.session_state.sites_courants) == 1) : 
                 st.error("Un seul site -> pas d'optimisation de tournée")
@@ -378,21 +396,25 @@ if check_mot_de_passe():
 
             groupe = st.session_state.groupement_choisi
             noms_presents = st.session_state.sites_courants["Nom"].tolist()
+
+            ids_a_suggerer, temps_trajet_sup = suggestions_sites.choix_sites_a_suggerer( st.session_state.sites_courants, st.session_state.site, st.session_state.duration,st.session_state.coord)
         
             sites_dispos = st.session_state.site[
-                (st.session_state.site["Groupement"] == groupe) &
+                (st.session_state.site["ID_Site"].isin(ids_a_suggerer)) &
                 (~st.session_state.site["Nom"].isin(noms_presents)) 
             ]
         
             if sites_dispos.empty:
                 st.info("Tous les sites du groupe sont inclus.")
             else:
+                iter = 0
                 for _, site in sites_dispos.iterrows():
+                    
                     with st.container(border=True):
                         st.write(f"**{site['Nom']}**")
                         st.caption(f"{site['Horaires']}")
                         st.caption(f"Durée PEC : {site['Temps_PEC']} min")
-                        st.caption(f"Trajet supplémentaire : {0} min")
+                        st.caption(f"Trajet supplémentaire max : {temps_trajet_sup[iter]} min")
                         if st.button(f"Ajouter à la journée", key=f"add_{site['ID_Site']}"):
                             edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
                             noms_choisis = edited_df["Nom"].tolist()
@@ -408,8 +430,10 @@ if check_mot_de_passe():
                             nouveau['ID_Site']=site['ID_Site']
                             st.session_state.sites_courants = pd.concat([st.session_state.sites_courants, nouveau], ignore_index=True)
                             st.rerun()
+                    iter += 1 
 
-    # --- ÉTAPE 3 : SAUVEGARDE ---
+    
+#etape sauvegarde
     elif st.session_state.etape == 4:
         st.header("Validation et Sauvegarde")
     
