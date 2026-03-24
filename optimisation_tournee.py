@@ -18,8 +18,24 @@ def optimiser_tournee(sites_df, durations_df, horaire_tech):
 
     debut_tech, fin_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
 
-    if fin_tech < 780 or debut_tech > 780:
-        return None # Cas sans pause midi, application simple du solveur ailleurs
+    if fin_tech < 780 :
+        plage_horaire_reduit, _, _ = ajuster_horaire_matin(horaire_tech, sites_df)
+        matrice_duration_reduite = reduire_taille(durations, sites_df)
+
+        solution = appliquer_solveur(sites_df, matrice_duration_reduite, plage_horaire_reduit)
+
+
+        return solution
+    
+    elif debut_tech > 780:
+        heure_fin_matin = debut_tech - 90
+        plage_horaire_aprem = ajuster_horaire_aprem(horaire_tech, sites_df, heure_fin_matin)
+        matrice_duration_reduite = reduire_taille(durations, sites_df)
+
+        solution = appliquer_solveur(sites_df, matrice_duration_reduite, plage_horaire_aprem)
+
+
+        return solution
 
     else:
         # --- GESTION DE LA MATINÉE ---
@@ -137,6 +153,7 @@ def optimiser_tournee(sites_df, durations_df, horaire_tech):
 
             if heure_fin_matin > plage_horaire_reduit[index][1]:
                 plage_horaire_aprem = ajuster_horaire_aprem(horaire_tech, sites_test, heure_fin_matin)
+                print(plage_horaire_aprem)
     
                 service_avant_pause = 0
 
@@ -216,7 +233,7 @@ def dataFrame_en_matrice(df_matrice) :
             if isinstance(current_value, float) and current_value != current_value : 
                 matrice_liste[i][j] =0
             try:
-                matrice_liste[i][j] = round(float(matrice_liste[i][j])/60)
+                matrice_liste[i][j] = round(float(matrice_liste[i][j]))
             except ValueError:
                 # Cette partie ne devrait normalement pas être atteinte si les '' et NaN sont bien gérés,
                 # mais elle sert de filet de sécurité pour tout autre type de donnée non numérique inattendu.
@@ -236,12 +253,13 @@ def reduire_taille(durations, sites_df ) :
     
     duration_liste  = durations.copy()
     duration_liste = duration_liste.drop('id',axis=1).to_numpy().tolist() 
+
     for i in range (len(duration_liste)) :
         for j in range (len(duration_liste)) :
             if duration_liste[i][j]=='' : 
                 duration_liste[i][j] =0
 
-    
+
     
     id_a_garder = sites_df['ID_Site'].tolist()
 
@@ -249,10 +267,15 @@ def reduire_taille(durations, sites_df ) :
 
     index_a_garder = [int(num) for num in id_a_garder]
 
-    duration_filtre = [
-        [round(float(duration_liste[ligne - 1][colonne - 1])/60) for colonne in id_a_garder] for ligne in index_a_garder]
-    
+    print(sites_df)
 
+    print(index_a_garder)
+    print(id_a_garder)
+
+    duration_filtre = [
+        [round(float(duration_liste[ligne - 1][colonne - 1])) for colonne in id_a_garder] for ligne in index_a_garder]
+    
+    print(duration_filtre)
 
     return duration_filtre
     
@@ -293,6 +316,7 @@ def ajuster_horaire_matin(horaire_tech, sites_df) :
             if ouverture_aprem[i] == 0  :
                 id_site_ouvert_seulement_matin.append(ids[i])
         else : 
+            print(ouverture_matin[i])
             new_plage_matin = (0,0)
 
         plage_horaire_matin.append(new_plage_matin)
@@ -428,6 +452,10 @@ def appliquer_solveur(sites_df, duration_reduit,horaire) :
 
     data['time_service'] = sites_df_avec_depot['Temps_Total_Service'].tolist()
     data['time_windows'] = horaire_avec_depot
+
+
+    print("solveur ")
+    print(data)
  
     manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
     routing = pywrapcp.RoutingModel(manager)
@@ -499,6 +527,9 @@ def appliquer_solveur_avec_depot(sites_df, duration_reduit,horaire,index_depot, 
     data['time_service'] = time_service
 
     data['time_windows'] = horaire
+
+    print("solveur avec depot")
+    print(data)
  
     manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
     routing = pywrapcp.RoutingModel(manager)
