@@ -232,17 +232,24 @@ if check_mot_de_passe():
             st.text(f"⚠️Tous les temps sont en minutes \nLe technicien travaille 7h30 dans sa journée = 450 minutes")
         with col2:
             st.text(f"Temps_PEC par défaut est le temps (en minute) prévu pour la prise en charge")
-        
-     
-        sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
-            
-        sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
-        
-        colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
-        edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
 
-        liste_nom = edited_df[edited_df["À_Visiter"] == True]['Nom'].to_list()
-        liste_id = sites_du_groupe[sites_du_groupe["Nom"].isin(liste_nom)]['ID_Site'].to_list()
+        col_tournee, col_map = st.columns([4, 1])
+        with col_tournee : 
+            sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
+            
+            sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
+            print(sites_du_groupe)
+        
+            colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
+            edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
+
+            liste_nom = edited_df[edited_df["À_Visiter"] == True]['Nom'].to_list()
+            liste_id = sites_du_groupe[sites_du_groupe["Nom"].isin(liste_nom)]['ID_Site'].to_list()
+        
+        with col_map : 
+            data = charger_data_gps(liste_id)
+            st.map(data)
+            st.markdown(f"*Dezoomer pour voir les points*")
         
        
 
@@ -254,26 +261,21 @@ if check_mot_de_passe():
                 st.session_state.resultat_tournee = None
                 st.session_state.etape = 1 
                 st.rerun()
-    
-        if st.button("🚀 Calculer l'itinéraire"):
-            sites_coches = edited_df[edited_df["À_Visiter"] == True].copy()
-            sites_coches["Temps_Total_Service"] = sites_coches["Temps_PEC"] + sites_coches["Maint_Prev"] + sites_coches["Maint_Corr"]
-        
-            noms_choisis = sites_coches["Nom"].tolist()
-            details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
-            sites_finaux = pd.merge(sites_coches, details_sites, on="Nom")
-        
-            st.session_state.sites_courants = sites_finaux
-            st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
+        with col4 : 
+            if st.button("🚀 Calculer l'itinéraire"):
+                sites_coches = edited_df[edited_df["À_Visiter"] == True].copy()
+                sites_coches["Temps_Total_Service"] = sites_coches["Temps_PEC"] + sites_coches["Maint_Prev"] + sites_coches["Maint_Corr"]
             
-            st.session_state.etape = 3
-            st.rerun()
-        if st.button("🔄 Changer la date"):
-                st.session_state.etape = 1
-                st.session_state.sites_courants = pd.DataFrame()
-                st.session_state.resultat_tournee = None
-                st.session_state.etape = 1 
+                noms_choisis = sites_coches["Nom"].tolist()
+                details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
+                sites_finaux = pd.merge(sites_coches, details_sites, on="Nom")
+            
+                st.session_state.sites_courants = sites_finaux
+                st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
+                
+                st.session_state.etape = 3
                 st.rerun()
+        
 
     # --- ÉTAPE 2 : ATELIER D'AJUSTEMENT ---
     elif st.session_state.etape == 3:
