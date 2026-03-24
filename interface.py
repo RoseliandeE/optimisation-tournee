@@ -233,7 +233,7 @@ if check_mot_de_passe():
         with col2:
             st.text(f"Temps_PEC par défaut est le temps (en minute) prévu pour la prise en charge")
 
-        col_tournee, col_map = st.columns([4, 1])
+        col_tournee, col_map = st.columns([5, 1])
         with col_tournee : 
             sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
             
