@@ -149,7 +149,14 @@ def charger_donnees(date_selectionnee):
     return df_sites,df_durees_temp
 
 
-
+def charger_data_gps(liste_id):
+    df_sites = pd.read_csv("sites.csv", sep=';', encoding="latin-1")
+    df_sites = df_sites[df_sites['idSite'].isin(liste_id)]
+    variables = ['latitude','longitude']
+    print(df_sites[variables])
+    df_data_gps = df_sites[variables]
+    print(df_data_gps)
+    return df_data_gps
 
 #INTERFACE STREAMLIT
 if check_mot_de_passe():
@@ -228,11 +235,34 @@ if check_mot_de_passe():
         
         
     
-        sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
-        sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
-    
-        colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
-        edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
+        col_tournee, col_map = st.columns([4, 1])
+
+        with col_tournee : 
+            sites_du_groupe = st.session_state.site[st.session_state.site["Groupement"] == groupement].copy()
+            
+            sites_du_groupe["À_Visiter"] = sites_du_groupe["Dans_Tournee_Defaut"]
+            print(sites_du_groupe)
+        
+            colonnes_visibles = ["À_Visiter", "Nom", "Horaires", "Temps_PEC", "Maint_Prev", "Maint_Corr"]
+            edited_df = st.data_editor(sites_du_groupe[colonnes_visibles], hide_index=True, width='stretch')
+
+            liste_nom = edited_df[edited_df["À_Visiter"] == True]['Nom'].to_list()
+            liste_id = sites_du_groupe[sites_du_groupe["Nom"].isin(liste_nom)]['ID_Site'].to_list()
+        
+        with col_map : 
+            data = charger_data_gps(liste_id)
+            st.map(data)
+            st.markdown(f"*Dezoomer pour voir les points*")
+
+
+        col1,_,_,col4 = st.columns(4)
+        with col1:
+            if st.button("🔄 Changer la date"):
+                st.session_state.etape = 1
+                st.session_state.sites_courants = pd.DataFrame()
+                st.session_state.resultat_tournee = None
+                st.session_state.etape = 1 
+                st.rerun()
     
         if st.button("🚀 Calculer l'itinéraire"):
             sites_coches = edited_df[edited_df["À_Visiter"] == True].copy()
