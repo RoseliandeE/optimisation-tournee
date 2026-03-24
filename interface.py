@@ -393,44 +393,50 @@ if check_mot_de_passe():
                 st.session_state.sites_courants = sites_finaux
 
                 st.info("Logique d'auto-remplissage à implémenter ici !")
+            print(st.session_state.sites_courants['Heure_Debut'].isna().sum())
+            if st.session_state.sites_courants['Heure_Debut'].isna().sum() > 0 :
+                st.info("Rendre la tournée valide pour voir les sites suggérés ou cliquer sur Recalculer!")
+            
+            else : 
+                noms_presents = st.session_state.sites_courants["Nom"].tolist()
 
-            groupe = st.session_state.groupement_choisi
-            noms_presents = st.session_state.sites_courants["Nom"].tolist()
+                ids_a_suggerer, temps_trajet_sup = suggestions_sites.choix_sites_a_suggerer( st.session_state.sites_courants, st.session_state.site, st.session_state.duration,st.session_state.coord)
+            
+                sites_dispos = st.session_state.site[
+                    (st.session_state.site["ID_Site"].isin(ids_a_suggerer)) &
+                    (~st.session_state.site["Nom"].isin(noms_presents)) 
+                ]
+                sites_dispos['temps_trajet_sup'] = temps_trajet_sup
 
-            ids_a_suggerer, temps_trajet_sup = suggestions_sites.choix_sites_a_suggerer( st.session_state.sites_courants, st.session_state.site, st.session_state.duration,st.session_state.coord)
-        
-            sites_dispos = st.session_state.site[
-                (st.session_state.site["ID_Site"].isin(ids_a_suggerer)) &
-                (~st.session_state.site["Nom"].isin(noms_presents)) 
-            ]
-        
-            if sites_dispos.empty:
-                st.info("Tous les sites du groupe sont inclus.")
-            else:
-                iter = 0
-                for _, site in sites_dispos.iterrows():
-                    
-                    with st.container(border=True):
-                        st.write(f"**{site['Nom']}**")
-                        st.caption(f"{site['Horaires']}")
-                        st.caption(f"Durée PEC : {site['Temps_PEC']} min")
-                        st.caption(f"Trajet supplémentaire max : {temps_trajet_sup[iter]} min")
-                        if st.button(f"Ajouter à la journée", key=f"add_{site['ID_Site']}"):
-                            edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
-                            noms_choisis = edited_df["Nom"].tolist()
-                            details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
+                sites_dispos.sort_values('temps_trajet_sup',ascending=True, inplace=True)
+            
+                if sites_dispos.empty:
+                    st.info("Tous les sites proches sont inclus.")
+                else:
+                    iter = 0
+                    for _, site in sites_dispos.iterrows():
+                        
+                        with st.container(border=True):
+                            st.write(f"**{site['Nom']}**")
+                            st.caption(f"{site['Horaires']}")
+                            st.caption(f"Durée PEC : {site['Temps_PEC']} min")
+                            st.caption(f"Trajet supplémentaire max : {site['temps_trajet_sup']} min")
+                            if st.button(f"Ajouter à la journée", key=f"add_{site['ID_Site']}"):
+                                edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
+                                noms_choisis = edited_df["Nom"].tolist()
+                                details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
 
-                            sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
-                            st.session_state.sites_courants = sites_finaux
+                                sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
+                                st.session_state.sites_courants = sites_finaux
 
-                            nouveau = pd.DataFrame([site])
-                            nouveau["Temps_Total_Service"] = site["Temps_PEC"]
-                            nouveau["Maint_Prev"] = 0
-                            nouveau["Maint_Corr"] = 0
-                            nouveau['ID_Site']=site['ID_Site']
-                            st.session_state.sites_courants = pd.concat([st.session_state.sites_courants, nouveau], ignore_index=True)
-                            st.rerun()
-                    iter += 1 
+                                nouveau = pd.DataFrame([site])
+                                nouveau["Temps_Total_Service"] = site["Temps_PEC"]
+                                nouveau["Maint_Prev"] = 0
+                                nouveau["Maint_Corr"] = 0
+                                nouveau['ID_Site']=site['ID_Site']
+                                st.session_state.sites_courants = pd.concat([st.session_state.sites_courants, nouveau], ignore_index=True)
+                                st.rerun()
+                        iter += 1 
 
     
 #etape sauvegarde
