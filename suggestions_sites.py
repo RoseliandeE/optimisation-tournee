@@ -26,7 +26,7 @@ def calcul_milieu_segment(lat_depart, long_depart, lat_arrivee,long_arrivee) :
     lat_milieu = round((lat_arrivee + lat_depart)/2,7)
     long_milieu = round((long_arrivee + long_depart)/2,7)
     
-    return (lat_milieu, long_milieu), longueur
+    return ( long_milieu, lat_milieu), longueur
 
 
 def verif_point_dans_cercle(centre, rayon, point):
@@ -34,6 +34,7 @@ def verif_point_dans_cercle(centre, rayon, point):
      = renvoie si la distance point-centre est plus petite que le rayon
       Retourne un booléen """
     rayon = max(rayon, 5)
+
     
     return distance_euclidienne(centre, point) < rayon
 
@@ -54,16 +55,23 @@ def calcul_temps_trajet_sup(id_point_depart, id_point_arrivee, id_point_a_ajoute
 
 
     if(id_point_depart == 0 and id_point_arrivee ==0) : 
+        #il y a aucun site donc si on ajoute ce site, il n'y a pas de trajet supplémentaire
         trajet = 0
 
     elif(id_point_depart == 0):
+        #le site qu'on veut ajouter est le site de départ
         trajet = float(duration_liste[id_point_a_ajouter - 1][id_point_arrivee - 1])
 
     elif(id_point_arrivee ==0):
+        #le site qu'on veut ajouter est le site de fin de journée
         float(duration_liste[id_point_depart - 1][id_point_a_ajouter - 1])
 
     else : 
-        trajet = float(duration_liste[id_point_depart - 1][id_point_a_ajouter - 1]) + float(duration_liste[id_point_a_ajouter - 1][id_point_arrivee - 1])
+        #le site qu'on veut ajouter se situe au milieu de la tournée (on voit un site avant et un site après)
+        trajet_sup = float(duration_liste[id_point_depart - 1][id_point_a_ajouter - 1]) + float(duration_liste[id_point_a_ajouter - 1][id_point_arrivee - 1])
+        trajet_existant = float(duration_liste[id_point_depart - 1][id_point_arrivee - 1])
+
+        trajet = round(trajet_sup - trajet_existant,2)
 
     return trajet
 
@@ -116,8 +124,7 @@ def sites_fermes_tard_proches(id_point, durations,horaires) :
 
 def choix_sites_a_suggerer(itineraire, site_df, durations, donnees_gps) :
 
-    ids_a_suggerer = [] 
-    temps_trajet_sup = []
+    ids_a_suggerer = {}
     liste_id_itineraire = itineraire['ID_Site'].tolist()
 
     for i in range(len(liste_id_itineraire)) : 
@@ -126,6 +133,7 @@ def choix_sites_a_suggerer(itineraire, site_df, durations, donnees_gps) :
         #   d'arrivée (= l'id courant)
         #puis on fait une boucle pour tester quels sites vont être suggérés
         id_arrivee = liste_id_itineraire[i]
+        nom_site_prec = []
 
         if(i == 0):
             id_depart = 0 
@@ -136,8 +144,7 @@ def choix_sites_a_suggerer(itineraire, site_df, durations, donnees_gps) :
             ids_a_suggerer_local = sites_ouverts_tot_proches(id_arrivee, durations,site_df)
             for id_local in ids_a_suggerer_local :
                 if id_local not in itineraire['ID_Site'].to_list() : 
-                    ids_a_suggerer.append(id_local)
-                    temps_trajet_sup.append(calcul_temps_trajet_sup(id_depart,id_arrivee,id_local,durations))
+                    ids_a_suggerer[id_local] = (calcul_temps_trajet_sup(id_depart,id_arrivee,id_local,durations),"Début")
         
         else : 
             lat_depart = donnees_gps[donnees_gps['ID_Site']==id_depart]['latitude'].iloc[0]
@@ -149,28 +156,40 @@ def choix_sites_a_suggerer(itineraire, site_df, durations, donnees_gps) :
             (centre, longueur) = calcul_milieu_segment(lat_depart, long_depart, lat_arrivee,long_arrivee)
 
             sites_a_tester = site_df[~site_df['ID_Site'].isin(itineraire['ID_Site'].to_list())]
-            sites_a_tester= sites_a_tester[~site_df['ID_Site'].isin(ids_a_suggerer)]
 
             ids_a_tester = sites_a_tester['ID_Site'].to_list()
 
             for id_test in ids_a_tester :
-                print(id_test)
                 lat_test = donnees_gps[donnees_gps['ID_Site']==id_test]['latitude'].iloc[0]
                 long_test = donnees_gps[donnees_gps['ID_Site']==id_test]['longitude'].iloc[0]
 
                 if verif_point_dans_cercle(centre, longueur/2, (long_test, lat_test)) :
-                    ids_a_suggerer.append(id_test)
-                    temps_trajet_sup.append(calcul_temps_trajet_sup(id_depart,id_arrivee,id_local,durations))
+                    
+                    if id_test not in ids_a_suggerer : 
+                        ids_a_suggerer[id_test] = (calcul_temps_trajet_sup(id_depart,id_arrivee,id_test,durations),site_df[site_df['ID_Site']==id_depart]['Nom'].iloc[0])
+                    else : 
+                        temps, _ = ids_a_suggerer[id_test]
+                        if(temps > calcul_temps_trajet_sup(id_depart,id_arrivee,id_test,durations)) : 
+                            ids_a_suggerer[id_test] = (calcul_temps_trajet_sup(id_depart,id_arrivee,id_test,durations),site_df[site_df['ID_Site']==id_depart]['Nom'].iloc[0])
 
     if(len(liste_id_itineraire)> 1) :    
         ids_a_suggerer_local = sites_fermes_tard_proches(id_arrivee, durations,site_df)
         for id_local in ids_a_suggerer_local :
-            ids_a_suggerer.append(id_local)
-            temps_trajet_sup.append(calcul_temps_trajet_sup(0,id_arrivee,id_local,durations))
+            if id_local not in ids_a_suggerer : 
+                ids_a_suggerer[id_local] = calcul_temps_trajet_sup(id_depart,id_arrivee,id_local,durations)
+            else : 
+                ids_a_suggerer[id_local] = min(ids_a_suggerer[id_local],calcul_temps_trajet_sup(id_depart,id_arrivee,id_local,durations))
+    
+    liste_ids_a_suggerer = []
+    temps_trajet_sup = []
+    for cle, valeur in ids_a_suggerer.items():
+        liste_ids_a_suggerer.append(cle)
+        temps, nom = valeur 
+        temps_trajet_sup.append(temps)
+        nom_site_prec.append(nom)
+        
+    
 
-    print(ids_a_suggerer)
-    print(temps_trajet_sup)
-
-    return ids_a_suggerer, temps_trajet_sup
+    return ids_a_suggerer, temps_trajet_sup,nom_site_prec
 
 
