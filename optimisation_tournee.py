@@ -6,7 +6,7 @@ import numpy as np
 import transformer_horaire
 
 
-def optimiser_tournee(sites_df, durations_df, horaire_tech):
+def optimiser_tournee(sites_df, durations_df, horaire_tech,temps_supplementaire):
     """Fonction qui optimise la tournée avec une exploration récursive pour la matinée"""
 
     if len(sites_df) <= 1:
@@ -17,6 +17,7 @@ def optimiser_tournee(sites_df, durations_df, horaire_tech):
     durations = durations_df.copy()
 
     debut_tech, fin_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
+    fin_tech += temps_supplementaire
 
     if fin_tech < 780 :
         plage_horaire_reduit, _, _ = ajuster_horaire_matin(horaire_tech, sites_df)
@@ -153,7 +154,6 @@ def optimiser_tournee(sites_df, durations_df, horaire_tech):
 
             if heure_fin_matin > plage_horaire_reduit[index][1]:
                 plage_horaire_aprem = ajuster_horaire_aprem(horaire_tech, sites_test, heure_fin_matin)
-                print(plage_horaire_aprem)
     
                 service_avant_pause = 0
 
@@ -259,23 +259,13 @@ def reduire_taille(durations, sites_df ) :
             if duration_liste[i][j]=='' : 
                 duration_liste[i][j] =0
 
-
-    
     id_a_garder = sites_df['ID_Site'].tolist()
 
-
-
     index_a_garder = [int(num) for num in id_a_garder]
-
-    print(sites_df)
-
-    print(index_a_garder)
-    print(id_a_garder)
 
     duration_filtre = [
         [round(float(duration_liste[ligne - 1][colonne - 1])) for colonne in id_a_garder] for ligne in index_a_garder]
     
-    print(duration_filtre)
 
     return duration_filtre
     
@@ -316,7 +306,6 @@ def ajuster_horaire_matin(horaire_tech, sites_df) :
             if ouverture_aprem[i] == 0  :
                 id_site_ouvert_seulement_matin.append(ids[i])
         else : 
-            print(ouverture_matin[i])
             new_plage_matin = (0,0)
 
         plage_horaire_matin.append(new_plage_matin)
@@ -336,17 +325,19 @@ def ajuster_horaire_aprem(horaire_tech, sites_df,heure_fin_matin) :
     
     _ , fin_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
     debut_tech = heure_fin_matin + 90
-    if debut_tech> fin_tech : 
-        plage_horaire_aprem = []
-        for i in range(len(ouverture_matin)) :
-            plage_horaire_aprem.append((0,0))
-        return plage_horaire_aprem
+    
 
     ouverture_matin = sites_df['Ouv_Matin'].tolist()
     fermeture_matin = sites_df['Ferm_Matin'].tolist()
 
     ouverture_aprem = sites_df['Ouv_Aprem'].tolist()
     fermeture_aprem = sites_df['Ferm_Aprem'].tolist()
+
+    if debut_tech> fin_tech : 
+        plage_horaire_aprem = []
+        for i in range(len(ouverture_matin)) :
+            plage_horaire_aprem.append((0,0))
+        return plage_horaire_aprem
 
     ids = sites_df['ID_Site'].tolist()
 
@@ -453,9 +444,6 @@ def appliquer_solveur(sites_df, duration_reduit,horaire) :
     data['time_service'] = sites_df_avec_depot['Temps_Total_Service'].tolist()
     data['time_windows'] = horaire_avec_depot
 
-
-    print("solveur ")
-    print(data)
  
     manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
     routing = pywrapcp.RoutingModel(manager)
@@ -528,9 +516,7 @@ def appliquer_solveur_avec_depot(sites_df, duration_reduit,horaire,index_depot, 
 
     data['time_windows'] = horaire
 
-    print("solveur avec depot")
-    print(data)
- 
+
     manager = pywrapcp.RoutingIndexManager(len(data['time_matrix']), data['num_vehicles'], data['depot']) 
     routing = pywrapcp.RoutingModel(manager)
     
