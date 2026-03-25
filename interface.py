@@ -9,6 +9,7 @@ import suggestions_sites
 
 #CHARGEMENT DES DONNÉES
 
+@st.cache_data
 
 def charger_dates_valides():
     """
