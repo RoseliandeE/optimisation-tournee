@@ -292,7 +292,7 @@ if check_mot_de_passe():
                     sites_finaux = pd.merge(sites_coches, details_sites, on="Nom")
                 
                     st.session_state.sites_courants = sites_finaux
-                    st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
+                    st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech,0)
                     
                     st.session_state.etape = 3
                     st.rerun()
@@ -308,6 +308,8 @@ if check_mot_de_passe():
 
     # --- ÉTAPE 2 : ATELIER D'AJUSTEMENT ---
     elif st.session_state.etape == 3:
+
+       
         st.header("Ajustement de la Tournée")
         
         st.session_state.sites_courants["Temps_Total_Service"] = st.session_state.sites_courants["Temps_PEC"] + st.session_state.sites_courants["Maint_Prev"] + st.session_state.sites_courants["Maint_Corr"]
@@ -320,7 +322,32 @@ if check_mot_de_passe():
         with col_tournee:
             
             st.subheader("Planning calculé")
-            st.markdown(f"**Horaire du technicien :** *{st.session_state.horaire_tech}*")
+            col1, col2,_,col3 = st.columns(4)
+
+            with col1 : 
+                st.markdown(f"**Horaire du technicien :** *{st.session_state.horaire_tech}*")
+
+            with col2 : 
+                liste_temps = [0,30,60,90,120,180,240]
+                temps_supplementaire = st.selectbox("Temps supplémentaire autorisé en minute",liste_temps)
+                print(st.session_state.horaire_tech)
+                
+            with col3 : 
+                with st.popover("Comprendre la logique d'optimisation") :
+                    st.markdown(f"### Explications")
+                    st.write("L'optimiseur calcule l'itinéraire le plus efficace en jonglant avec les temps de trajet, les temps d'intervention et les plages d'ouverture de chaque site et du technicien.")
+                    st.write('**1. Construire la matinée la plus "rentable" :**' )
+                    st.write("L'outil teste intelligemment différentes combinaisons de sites pour construire la matinée la plus productive possible. Il va chercher à :")
+                    st.markdown("""
+                    *   Prioriser les sites qui ne sont **ouverts que le matin**.
+                    *   Maximiser le **nombre de sites visités** et le **temps de travail effectif** avant la pause déjeuner.
+                    """)
+                    st.write('**2. Organiser l\'après-midi :**')
+                    st.write("Une fois la meilleure tournée du matin trouvée, il planifie le reste des visites en tenant compte de la fin de la dernière intervention, de la **pause déjeuner** (= 1h30), et des horaires des sites restants.")
+                    st.write("")
+                    st.write("Si plusieurs itinéraires sont possibles, l'outil privilégiera systématiquement celui qui permet de terminer la journée le **plus tôt**.")
+
+            
             if (len(st.session_state.sites_courants) == 0) : 
                 st.error("Aucun site dans la tournée")
                 st.session_state.sites_courants["Heure_Debut"] = None
@@ -379,7 +406,7 @@ if check_mot_de_passe():
                     sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
                     st.session_state.sites_courants = sites_finaux
 
-                    st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech)
+                    st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech,temps_supplementaire)
 
                     st.rerun()
                 if st.button("✅ Valider ce planning"):
@@ -397,14 +424,30 @@ if check_mot_de_passe():
                 
 
         with col_suggestions:
-            st.subheader("💡 Suggestions")
+            col1, col2 = st.columns([2, 1])
+
+            with col1 : 
+                st.subheader("💡 Suggestions")
+            with col2 : 
+                with st.popover("Comprendre la logique de suggestions") : 
+                    st.markdown(f"### Explications")
+                    st.write('La suggestion de sites fonctionne en utilisant l\'intinéraire calculé à gauche :')
+                    st.write('**1 : Identification des sites pertinents géographiquement :**' )
+                    st.write("Entre deux points : Pour un trajet (par exemple, entre Grenoble et Lyon), l'outil dessine une \"zone de recherche\" entre ces deux villes et propose les sites qui s'y trouvent (comme Vienne ou Bourgoin-Jallieu).")
+                    st.write("Début/Fin de journée : Il recherche aussi des sites qui ouvrent tôt ou ferment tard à proximité du premier et dernier sites.")
+                    st.write('**2 : Calcul du temps de trajet supplémentaire**')
+                    st.write('Ce temps représente uniquement le temps de conduite supplémentaire nécessaire pour ajouter le site à l\'itinéraire après le site indiqué, mais il ne prend pas en compte les horaires : c\'est l\'optimisation de la tournée qui se fait ensuite qui va calculer le réel coût de l\'ajout de ce site')
+
             if st.button("✨ Remplir la journée automatiquement", type="primary"):
                 edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
                 noms_choisis = edited_df["Nom"].tolist()
                 details_sites = st.session_state.site[st.session_state.site["Nom"].isin(noms_choisis)][['ID_Site',"Nom", "Ouv_Matin", "Ferm_Matin", "Ouv_Aprem", "Ferm_Aprem"]]
                 sites_finaux = pd.merge(edited_df, details_sites, on="Nom")
                 st.session_state.sites_courants = sites_finaux
+                
+                st.session_state.resultat_tournee = tournee_courante
 
+                suggestions_sites.tournee_automatique(st.session_state.sites_courants, st.session_state.site, st.session_state.duration, st.session_state.coord, st.session_state.horaire_tech)
                 st.info("Logique d'auto-remplissage à implémenter ici !")
             if st.session_state.sites_courants['Heure_Debut'].isna().sum() > 0 and  len(st.session_state.sites_courants) > 1 :
                 st.info("Rendre la tournée valide pour voir les sites suggérés ou cliquer sur Recalculer!")
@@ -433,8 +476,8 @@ if check_mot_de_passe():
                             st.write(f"**{site['Nom']}**")
                             st.caption(f"{site['Horaires']}")
                             st.caption(f"Durée PEC : {site['Temps_PEC']} min")
-                            st.caption(f"Trajet supplémentaire max : {site['temps_trajet_sup']} min")
-                            st.caption(f"Ajouter après : {site['noms_sites_prec']}")
+                            st.caption(f"Trajet supplémentaire : {site['temps_trajet_sup']} min")
+                            st.caption(f"Ajouté après : {site['noms_sites_prec']}")
                             if st.button(f"Ajouter à la journée", key=f"add_{site['ID_Site']}"):
                                 edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
                                 noms_choisis = edited_df["Nom"].tolist()
@@ -449,6 +492,7 @@ if check_mot_de_passe():
                                 nouveau["Maint_Corr"] = 0
                                 nouveau['ID_Site']=site['ID_Site']
                                 st.session_state.sites_courants = pd.concat([st.session_state.sites_courants, nouveau], ignore_index=True)
+                                st.session_state.resultat_tournee = optimisation_tournee.optimiser_tournee(st.session_state.sites_courants,st.session_state.duration,st.session_state.horaire_tech,temps_supplementaire)
                                 st.rerun()
                         iter += 1 
 
