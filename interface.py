@@ -1,13 +1,13 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import pydeck as pdk
+
 
 import optimisation_tournee
 import suggestions_sites
 
-
 #CHARGEMENT DES DONNÉES
-
 
 @st.cache_data
 
@@ -67,7 +67,7 @@ def charger_donnees(date_selectionnee):
         tournees_file = "tournees.csv"
         horaires_file = "synthese_horaires_sites.csv"
 
-        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="utf-8")
+        df_sites_original = pd.read_csv(sites_file, sep=';', encoding="latin-1")
         
         df_durees_temp = pd.read_csv(durations_file, sep=';', encoding='utf-8')
         df_durees_temp = df_durees_temp[df_durees_temp['id']>0]
@@ -75,13 +75,15 @@ def charger_donnees(date_selectionnee):
         df_durees_temp = df_durees_temp.drop('cluster',axis=1)
 
         df_distances_temp = pd.read_csv(distances_file, sep=';', encoding='utf-8')
-        df_home_site_durations_temp = pd.read_csv(home_site_durations_file, sep=';', encoding='utf-8')
+        df_home_site_durations_temp = pd.read_csv(home_site_durations_file, sep=';', encoding='latin-1')
         df_tournees = pd.read_csv(tournees_file, sep=';', encoding='latin-1')
         df_horaires_temp = pd.read_csv(horaires_file, sep=';', encoding='utf-8')
 
-        df_data_gps = df_sites_original[['latitude','longitude']]
-        df_data_gps['ID_Site']= df_sites_original['idSite']
-
+        df_data_gps = df_sites_original.copy()
+        
+        
+        df_data_gps = df_data_gps[['idSite','latitude','longitude']]
+        df_data_gps['ID_Site']= df_data_gps['idSite']
 
     except FileNotFoundError as e:
         st.error(f"Fichier manquant : {e}. Veuillez vérifier que tous les CSV sont présents.")
@@ -151,7 +153,8 @@ def charger_donnees(date_selectionnee):
 
     df_sites["Dans_Tournee_Defaut"] = False 
 
-    return df_sites,df_durees_temp,df_data_gps
+    return df_sites,df_durees_temp, df_data_gps
+
 
 
 def charger_data_gps(liste_id):
@@ -159,7 +162,11 @@ def charger_data_gps(liste_id):
     df_sites = df_sites[df_sites['idSite'].isin(liste_id)]
     variables = ['latitude','longitude']
     df_data_gps = df_sites[variables]
+
+    
     return df_data_gps
+
+
 
 #INTERFACE STREAMLIT
 if check_mot_de_passe():
@@ -178,7 +185,7 @@ if check_mot_de_passe():
     if 'resultat_tournee' not in st.session_state:
         st.session_state.resultat_tournee = None
     if 'groupement_choisi' not in st.session_state: #ou cluster
-        st.session_state.groupement_choisi = "Grenoble"
+        st.session_state.groupement_choisi = ""
     if 'site' not in st.session_state:
         st.session_state.site = pd.DataFrame()
     if 'duration' not in st.session_state:
@@ -194,9 +201,15 @@ if check_mot_de_passe():
         st.header("Choix de la journée")
         st.subheader(f"Choisir une date entre : {min_date} et {max_date}")
         date = st.date_input("Date d'intervention")
+
+        liste_id = []
+        for i in range (1,534) : 
+            liste_id.append(i)
+    
         
         if st.button("✅ Valider cette date"):
             st.session_state.site,st.session_state.duration,st.session_state.coord = charger_donnees(date)
+            
             st.session_state.etape = 2
             st.rerun()
         
@@ -393,20 +406,20 @@ if check_mot_de_passe():
                 st.session_state.sites_courants = sites_finaux
 
                 st.info("Logique d'auto-remplissage à implémenter ici !")
-            print(st.session_state.sites_courants['Heure_Debut'].isna().sum())
-            if st.session_state.sites_courants['Heure_Debut'].isna().sum() > 0 :
+            if st.session_state.sites_courants['Heure_Debut'].isna().sum() > 0 and  len(st.session_state.sites_courants) > 1 :
                 st.info("Rendre la tournée valide pour voir les sites suggérés ou cliquer sur Recalculer!")
             
             else : 
                 noms_presents = st.session_state.sites_courants["Nom"].tolist()
 
-                ids_a_suggerer, temps_trajet_sup = suggestions_sites.choix_sites_a_suggerer( st.session_state.sites_courants, st.session_state.site, st.session_state.duration,st.session_state.coord)
+                ids_a_suggerer, temps_trajet_sup, noms_sites_prec = suggestions_sites.choix_sites_a_suggerer( st.session_state.sites_courants, st.session_state.site, st.session_state.duration,st.session_state.coord)
             
-                sites_dispos = st.session_state.site[
-                    (st.session_state.site["ID_Site"].isin(ids_a_suggerer)) &
-                    (~st.session_state.site["Nom"].isin(noms_presents)) 
+                sites_dispos = st.session_state.site.copy()
+                sites_dispos=sites_dispos[
+                    (st.session_state.site["ID_Site"].isin(ids_a_suggerer)) 
                 ]
                 sites_dispos['temps_trajet_sup'] = temps_trajet_sup
+                sites_dispos['noms_sites_prec'] = noms_sites_prec
 
                 sites_dispos.sort_values('temps_trajet_sup',ascending=True, inplace=True)
             
@@ -421,6 +434,7 @@ if check_mot_de_passe():
                             st.caption(f"{site['Horaires']}")
                             st.caption(f"Durée PEC : {site['Temps_PEC']} min")
                             st.caption(f"Trajet supplémentaire max : {site['temps_trajet_sup']} min")
+                            st.caption(f"Ajouter après : {site['noms_sites_prec']}")
                             if st.button(f"Ajouter à la journée", key=f"add_{site['ID_Site']}"):
                                 edited_df["Temps_Total_Service"] = edited_df["Temps_PEC"] + edited_df["Maint_Prev"] + edited_df["Maint_Corr"]
                                 noms_choisis = edited_df["Nom"].tolist()
@@ -438,8 +452,7 @@ if check_mot_de_passe():
                                 st.rerun()
                         iter += 1 
 
-    
-#etape sauvegarde
+    # --- ÉTAPE 3 : SAUVEGARDE ---
     elif st.session_state.etape == 4:
         st.header("Validation et Sauvegarde")
     
