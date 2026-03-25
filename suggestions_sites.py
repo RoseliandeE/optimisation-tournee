@@ -126,6 +126,7 @@ def choix_sites_a_suggerer(itineraire, site_df, durations, donnees_gps) :
 
     ids_a_suggerer = {}
     liste_id_itineraire = itineraire['ID_Site'].tolist()
+    nom_site_prec = []
 
     for i in range(len(liste_id_itineraire)) : 
         #On actualise les identifiants 
@@ -133,7 +134,7 @@ def choix_sites_a_suggerer(itineraire, site_df, durations, donnees_gps) :
         #   d'arrivée (= l'id courant)
         #puis on fait une boucle pour tester quels sites vont être suggérés
         id_arrivee = liste_id_itineraire[i]
-        nom_site_prec = []
+        
 
         if(i == 0):
             id_depart = 0 
@@ -193,3 +194,70 @@ def choix_sites_a_suggerer(itineraire, site_df, durations, donnees_gps) :
     return ids_a_suggerer, temps_trajet_sup,nom_site_prec
 
 
+#################################
+#BOUTON REMPLIR LA JOURNEE AUTOMATIQUEMENT  
+
+
+def tournee_automatique(itineraire, site_df,durations, coord, horaire_tech) :
+    durations_liste  = durations.copy()
+    durations_liste = durations_liste.drop('id',axis=1).to_numpy().tolist() 
+
+    for i in range (len(durations_liste)) :
+        for j in range (len(durations_liste)) :
+            if durations_liste[i][j]=='' : 
+                durations_liste[i][j] =0
+
+
+
+
+
+    plage_horaire_tech = transformer_horaire.parser_plage_horaire(horaire_tech)
+
+    verif_itineraire_faisable(itineraire,site_df,durations_liste, plage_horaire_tech)
+    pass
+
+def verif_itineraire_faisable(itineraire, site_df,durations_liste, horaire_tech) : 
+
+    flag_pause = 0 
+    debut_tech, fin_tech = horaire_tech
+    liste_ids_itineraire = itineraire['ID_Site'].to_list()
+    temps_courant = debut_tech
+    id_prec = 0 
+
+    temps_dispo = fin_tech - debut_tech
+    
+    if fin_tech - debut_tech > 4 : temps_dispo -=  90 #si le tech fait une journée de moins de 4h -> pas de pause 
+
+    if(itineraire['Temps_Total_Service'].sum() > temps_dispo ) : 
+        #si le temps de travail est plus grand que le temps de disponible du technicien
+        return False
+
+    for id in liste_ids_itineraire : 
+        if id_prec == 0 : 
+            trajet = 0 
+        else : 
+            trajet = durations_liste[id_prec -1][id - 1]
+        
+        temps_courant += trajet
+        service = itineraire[itineraire['ID_Site']==id]['Temps_Total_Service'].iloc[0]
+        ouv_matin = site_df[site_df['ID_Site'] == id]['Ouv_Matin'].iloc[0]
+        ferm_matin = site_df[site_df['ID_Site'] == id]['Ferm_Matin'].iloc[0]
+        ouv_aprem = site_df[site_df['ID_Site'] == id]['Ouv_Aprem'].iloc[0]
+        ferm_aprem = site_df[site_df['ID_Site'] == id]['Ferm_Aprem'].iloc[0]
+
+        if(temps_dispo + service > ferm_aprem and temps_dispo + service > ferm_matin) or temps_dispo + service > fin_tech : 
+            #cas ou après le service, le site est fermé ou le technicien dépasse ses heures 
+            return False
+
+
+        print(service)
+
+
+
+
+
+    print(itineraire)
+    print(site_df)
+    print(durations_liste[0][0])
+    print(horaire_tech)
+    pass
